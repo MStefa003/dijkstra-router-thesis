@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Route Monitoring Demo</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+        
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 0;
+            min-height: 700px;
+        }
+        
+        .map-container {
+            position: relative;
+        }
+        
+        #map {
+            height: 700px;
+            width: 100%;
+        }
+        
+        .controls-panel {
+            background: #f8f9fa;
+            padding: 30px;
+            border-left: 1px solid #e9ecef;
+        }
+        
+        .control-group {
+            margin-bottom: 25px;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .control-group h3 {
+            margin: 0 0 15px 0;
+            color: #2c3e50;
+            font-size: 1.2em;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 8px;
+        }
+        
+        .input-group {
+            margin-bottom: 15px;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #34495e;
+        }
+        
+        .input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 10px;
+        }
+        
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+        
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #229954;
+        }
+        
+        .btn-warning {
+            background: #f39c12;
+            color: white;
+        }
+        
+        .btn-warning:hover {
+            background: #e67e22;
+        }
+        
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        
+        .status-panel {
+            background: #2c3e50;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-connected {
+            background: #27ae60;
+        }
+        
+        .status-disconnected {
+            background: #e74c3c;
+        }
+        
+        .status-monitoring {
+            background: #f39c12;
+        }
+        
+        .incident-alert {
+            background: #e74c3c;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+        
+        .eta-display {
+            background: #3498db;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        
+        .eta-display h4 {
+            margin: 0 0 10px 0;
+            font-size: 1.1em;
+        }
+        
+        .eta-time {
+            font-size: 2em;
+            font-weight: bold;
+            margin: 0;
+        }
+        
+        .eta-delay {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin: 5px 0 0 0;
+        }
+        
+        .log-panel {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 8px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+        
+        .log-timestamp {
+            color: #95a5a6;
+            margin-right: 10px;
+        }
+        
+        .log-info {
+            color: #3498db;
+        }
+        
+        .log-success {
+            color: #27ae60;
+        }
+        
+        .log-warning {
+            color: #f39c12;
+        }
+        
+        .log-error {
+            color: #e74c3c;
+        }
+        
+        .coordinates-display {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            background: #ecf0f1;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 5px;
+        }
+        
+        @media (max-width: 1200px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls-panel {
+                border-left: none;
+                border-top: 1px solid #e9ecef;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚗 Real-time Route Monitoring</h1>
+            <p>Advanced routing with live traffic updates, incident detection & dynamic ETA</p>
+        </div>
+        
+        <div class="main-content">
+            <div class="map-container">
+                <div id="map"></div>
+            </div>
+            
+            <div class="controls-panel">
+                <!-- Connection Status -->
+                <div class="control-group">
+                    <h3>📡 Connection Status</h3>
+                    <div class="status-panel">
+                        <div id="connection-status">
+                            <span class="status-indicator status-disconnected"></span>
+                            Disconnected
+                        </div>
+                        <div id="route-status" style="margin-top: 10px;">
+                            <span class="status-indicator status-disconnected"></span>
+                            No active route
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Route Setup -->
+                <div class="control-group">
+                    <h3>🗺️ Route Setup</h3>
+                    <div class="input-group">
+                        <label>Start (lat, lon):</label>
+                        <input type="text" id="start-coords" placeholder="38.2466, 21.7348" value="38.2466, 21.7348">
+                        <div class="coordinates-display">Πάτρα, Ελλάδα</div>
+                    </div>
+                    <div class="input-group">
+                        <label>End (lat, lon):</label>
+                        <input type="text" id="end-coords" placeholder="38.2467, 22.0736" value="38.2467, 22.0736">
+                        <div class="coordinates-display">Αίγιο, Ελλάδα</div>
+                    </div>
+                    <button class="btn btn-primary" onclick="startRealtimeRoute()">
+                        🚀 Start Real-time Route
+                    </button>
+                </div>
+                
+                <!-- ETA Display -->
+                <div class="control-group">
+                    <div class="eta-display" id="eta-display" style="display: none;">
+                        <h4>⏱️ Estimated Time</h4>
+                        <div class="eta-time" id="eta-time">--:--</div>
+                        <div class="eta-delay" id="eta-delay">No delays</div>
+                    </div>
+                </div>
+                
+                <!-- Incident Alerts -->
+                <div id="incident-alerts"></div>
+                
+                <!-- Route Controls -->
+                <div class="control-group" id="route-controls" style="display: none;">
+                    <h3>🎮 Route Controls</h3>
+                    <button class="btn btn-success" onclick="simulateMovement()">
+                        📍 Simulate Movement
+                    </button>
+                    <button class="btn btn-warning" onclick="forceIncident('accident')">
+                        🚨 Force Accident
+                    </button>
+                    <button class="btn btn-warning" onclick="forceIncident('traffic_jam')">
+                        🚦 Force Traffic Jam
+                    </button>
+                    <button class="btn btn-danger" onclick="stopMonitoring()">
+                        ⏹️ Stop Monitoring
+                    </button>
+                </div>
+                
+                <!-- Activity Log -->
+                <div class="control-group">
+                    <h3>📋 Activity Log</h3>
+                    <div class="log-panel" id="activity-log"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let map;
+        let socket;
+        let currentRouteId = null;
+        let routeLayer = null;
+        let currentPosition = 0;
+        let routeCoordinates = [];
+        let positionMarker = null;
+        
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView([38.2466, 21.7348], 10);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+            
+            // Add click handler for setting coordinates
+            map.on('click', function(e) {
+                const coords = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+                if (confirm(`Set as destination: ${coords}?`)) {
+                    document.getElementById('end-coords').value = coords;
+                }
+            });
+        }
+        
+        // Initialize WebSocket connection
+        function initWebSocket() {
+            socket = io();
+            
+            socket.on('connect', function() {
+                updateConnectionStatus(true);
+                addLog('Connected to real-time server', 'success');
+            });
+            
+            socket.on('disconnect', function() {
+                updateConnectionStatus(false);
+                addLog('Disconnected from server', 'error');
+            });
+            
+            socket.on('monitoring_started', function(data) {
+                addLog(`Route monitoring started: ${data.route_id}`, 'success');
+                updateRouteStatus('monitoring');
+                document.getElementById('route-controls').style.display = 'block';
+            });
+            
+            socket.on('route_update', function(data) {
+                updateETA(data);
+                addLog(`Route updated - ETA: ${formatDuration(data.eta)}`, 'info');
+            });
+            
+            socket.on('incident_alert', function(data) {
+                showIncidentAlert(data.incident);
+                addLog(`🚨 ${data.incident.description} - ${data.incident.severity}`, 'warning');
+            });
+            
+            socket.on('eta_update', function(data) {
+                updateETA(data);
+                const delay = data.delay_seconds;
+                if (delay > 0) {
+                    addLog(`ETA updated - Delay: +${Math.round(delay/60)} min`, 'warning');
+                } else {
+                    addLog(`ETA updated - On time`, 'success');
+                }
+            });
+            
+            socket.on('error', function(data) {
+                addLog(`Error: ${data.message}`, 'error');
+            });
+        }
+        
+        // Start real-time route
+        async function startRealtimeRoute() {
+            const startInput = document.getElementById('start-coords').value;
+            const endInput = document.getElementById('end-coords').value;
+            
+            if (!startInput || !endInput) {
+                alert('Please enter both start and end coordinates');
+                return;
+            }
+            
+            try {
+                const [startLat, startLon] = startInput.split(',').map(s => parseFloat(s.trim()));
+                const [endLat, endLon] = endInput.split(',').map(s => parseFloat(s.trim()));
+                
+                addLog('Requesting real-time route...', 'info');
+                
+                const response = await fetch('/start_realtime_route', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        start: [startLon, startLat],
+                        end: [endLon, endLat],
+                        type: 'driving'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentRouteId = data.route_id;
+                    routeCoordinates = data.route.geometry;
+                    
+                    // Display route on map
+                    displayRoute(data.route.geometry);
+                    
+                    // Start monitoring
+                    socket.emit('start_route_monitoring', {
+                        route_id: currentRouteId,
+                        route_data: data.route
+                    });
+                    
+                    // Show ETA
+                    document.getElementById('eta-display').style.display = 'block';
+                    updateETA({
+                        eta: data.route.duration_seconds,
+                        original_eta: data.route.duration_seconds,
+                        delay_seconds: 0
+                    });
+                    
+                    addLog(`Route created: ${data.route.distance_km}km, ${data.route.duration}`, 'success');
+                } else {
+                    addLog(`Failed to create route: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                addLog(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Display route on map
+        function displayRoute(coordinates) {
+            if (routeLayer) {
+                map.removeLayer(routeLayer);
+            }
+            
+            const latLngs = coordinates.map(coord => [coord[1], coord[0]]);
+            routeLayer = L.polyline(latLngs, {
+                color: '#3498db',
+                weight: 5,
+                opacity: 0.8
+            }).addTo(map);
+            
+            // Fit map to route
+            map.fitBounds(routeLayer.getBounds(), { padding: [20, 20] });
+            
+            // Add start and end markers
+            L.marker([latLngs[0][0], latLngs[0][1]])
+                .bindPopup('🚩 Start')
+                .addTo(map);
+            
+            L.marker([latLngs[latLngs.length-1][0], latLngs[latLngs.length-1][1]])
+                .bindPopup('🏁 End')
+                .addTo(map);
+        }
+        
+        // Simulate movement along route
+        function simulateMovement() {
+            if (!currentRouteId || !routeCoordinates.length) {
+                addLog('No active route for simulation', 'warning');
+                return;
+            }
+            
+            currentPosition = Math.min(currentPosition + 10, routeCoordinates.length - 1);
+            
+            // Update position marker
+            if (positionMarker) {
+                map.removeLayer(positionMarker);
+            }
+            
+            const coord = routeCoordinates[currentPosition];
+            positionMarker = L.marker([coord[1], coord[0]], {
+                icon: L.divIcon({
+                    html: '🚗',
+                    iconSize: [20, 20],
+                    className: 'vehicle-marker'
+                })
+            }).addTo(map);
+            
+            // Emit position update
+            socket.emit('update_position', {
+                route_id: currentRouteId,
+                position: currentPosition
+            });
+            
+            const progress = Math.round((currentPosition / routeCoordinates.length) * 100);
+            addLog(`Position updated: ${progress}% complete`, 'info');
+        }
+        
+        // Force incident for testing
+        function forceIncident(type) {
+            if (!currentRouteId) {
+                addLog('No active route for incident simulation', 'warning');
+                return;
+            }
+            
+            socket.emit('force_incident', {
+                route_id: currentRouteId,
+                type: type
+            });
+            
+            addLog(`Forcing ${type} incident...`, 'warning');
+        }
+        
+        // Stop monitoring
+        function stopMonitoring() {
+            if (currentRouteId) {
+                socket.emit('stop_route_monitoring', {
+                    route_id: currentRouteId
+                });
+                
+                currentRouteId = null;
+                currentPosition = 0;
+                
+                document.getElementById('route-controls').style.display = 'none';
+                document.getElementById('eta-display').style.display = 'none';
+                document.getElementById('incident-alerts').innerHTML = '';
+                
+                updateRouteStatus('none');
+                addLog('Route monitoring stopped', 'info');
+                
+                // Clear map
+                if (routeLayer) {
+                    map.removeLayer(routeLayer);
+                }
+                if (positionMarker) {
+                    map.removeLayer(positionMarker);
+                }
+            }
+        }
+        
+        // Update connection status
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connection-status');
+            const indicator = statusEl.querySelector('.status-indicator');
+            
+            if (connected) {
+                indicator.className = 'status-indicator status-connected';
+                statusEl.innerHTML = '<span class="status-indicator status-connected"></span>Connected';
+            } else {
+                indicator.className = 'status-indicator status-disconnected';
+                statusEl.innerHTML = '<span class="status-indicator status-disconnected"></span>Disconnected';
+            }
+        }
+        
+        // Update route status
+        function updateRouteStatus(status) {
+            const statusEl = document.getElementById('route-status');
+            let indicator, text;
+            
+            switch(status) {
+                case 'monitoring':
+                    indicator = 'status-monitoring';
+                    text = 'Route monitoring active';
+                    break;
+                case 'none':
+                default:
+                    indicator = 'status-disconnected';
+                    text = 'No active route';
+                    break;
+            }
+            
+            statusEl.innerHTML = `<span class="status-indicator ${indicator}"></span>${text}`;
+        }
+        
+        // Update ETA display
+        function updateETA(data) {
+            document.getElementById('eta-time').textContent = formatDuration(data.eta);
+            
+            const delay = data.delay_seconds || 0;
+            const delayEl = document.getElementById('eta-delay');
+            
+            if (delay > 0) {
+                delayEl.textContent = `+${Math.round(delay/60)} min delay`;
+                delayEl.style.color = '#e74c3c';
+            } else {
+                delayEl.textContent = 'On time';
+                delayEl.style.color = '#27ae60';
+            }
+        }
+        
+        // Show incident alert
+        function showIncidentAlert(incident) {
+            const alertsContainer = document.getElementById('incident-alerts');
+            
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'incident-alert';
+            alertDiv.innerHTML = `
+                <strong>🚨 ${incident.description}</strong><br>
+                <small>Severity: ${incident.severity} | ETA impact: +${Math.round(incident.delay_factor * 5)} min</small>
+            `;
+            
+            alertsContainer.appendChild(alertDiv);
+            
+            // Auto-remove after 10 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.parentNode.removeChild(alertDiv);
+                }
+            }, 10000);
+        }
+        
+        // Add log entry
+        function addLog(message, type = 'info') {
+            const logPanel = document.getElementById('activity-log');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            logEntry.innerHTML = `
+                <span class="log-timestamp">[${timestamp}]</span>
+                <span class="log-${type}">${message}</span>
+            `;
+            
+            logPanel.appendChild(logEntry);
+            logPanel.scrollTop = logPanel.scrollHeight;
+            
+            // Keep only last 50 entries
+            while (logPanel.children.length > 50) {
+                logPanel.removeChild(logPanel.firstChild);
+            }
+        }
+        
+        // Format duration
+        function formatDuration(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            
+            if (hours > 0) {
+                return `${hours}:${minutes.toString().padStart(2, '0')}h`;
+            } else {
+                return `${minutes}min`;
+            }
+        }
+        
+        // Initialize everything
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+            initWebSocket();
+            addLog('Real-time routing system initialized', 'success');
+        });
+    </script>
+</body>
+</html>
