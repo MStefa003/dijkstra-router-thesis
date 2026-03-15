@@ -4,7 +4,8 @@
       "Bash(pip install:*)",
       "Bash(python -c \"from routing.route_manager import RouteManager; from routing.realtime_manager import RealtimeRouteManager\")",
       "Bash(python -c \":*)",
-      "Bash(timeout 5 python app.py)"
+      "Bash(timeout 5 python app.py)",
+      "Bash(python -c \"from routing.dijkstra import Dijkstra; from routing.astar_dijkstra import AStarDijkstra; from routing.osm_handler import OSMHandler; from routing.route_manager import RouteManager; print\\(''OK''\\)\")"
     ]
   }
 }

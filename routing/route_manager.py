@@ -192,28 +192,23 @@ class RouteManager:
     
     def format_steps(self, steps):
         """
-        Μορφοποίηση των βημάτων για εμφάνιση στο frontend
+        Μορφοποίηση των βημάτων για εμφάνιση στο frontend.
+        Επιστρέφει duration ως αριθμό (seconds) για σωστή εμφάνιση στο UI.
         """
         if not steps:
             return []
-            
+
         formatted_steps = []
-        
-        for i, step in enumerate(steps):
-            # στρογγυλοποίηση απόστασης σε 2 δεκαδικά
-            distance = round(step.get('distance', 0), 2)
-            
-            # μετατροπή διάρκειας από δευτερόλεπτα σε λεπτά
-            duration = step.get('duration', 0)
-            duration_minutes = round(duration / 60) if duration else 0
-            
-            # προσθήκη βήματος στη λίστα
+        for step in steps:
+            distance = step.get('distance', 0) or 0
+            duration = step.get('duration', 0) or step.get('time', 0) or 0
+
             formatted_steps.append({
-                'instruction': step.get('instruction', 'Continue'),
-                'distance': distance,
-                'duration': f"{duration_minutes} min"
+                'instruction': step.get('instruction', 'Συνέχεια'),
+                'distance': round(float(distance), 4),   # km, 4 decimals (e.g. 0.0043)
+                'duration': round(float(duration), 1),   # seconds as number
             })
-            
+
         return formatted_steps
     
     def _find_route_with_waypoints(self, start_coords, end_coords, waypoints, route_type):

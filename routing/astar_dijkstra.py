@@ -199,48 +199,66 @@ class AStarDijkstra:
         
         return results
     
+    def _get_direction(self, lat1: float, lon1: float, lat2: float, lon2: float) -> str:
+        """Υπολογισμός κατεύθυνσης κίνησης (8 κατευθύνσεις)"""
+        angle = math.atan2(lon2 - lon1, lat2 - lat1) * 180.0 / math.pi
+        if   -22.5  <= angle <  22.5:  return "Συνέχεια βόρεια"
+        elif  22.5  <= angle <  67.5:  return "Στροφή βορειοανατολικά"
+        elif  67.5  <= angle < 112.5:  return "Στροφή ανατολικά"
+        elif 112.5  <= angle < 157.5:  return "Στροφή νοτιοανατολικά"
+        elif angle >= 157.5 or angle < -157.5: return "Στροφή νότια"
+        elif -157.5 <= angle < -112.5: return "Στροφή νοτιοδυτικά"
+        elif -112.5 <= angle <  -67.5: return "Στροφή δυτικά"
+        else:                          return "Στροφή βορειοδυτικά"
+
     def _reconstruct_astar_path(self, came_from: Dict, start: int, end: int) -> Tuple:
         """Ανακατασκευή διαδρομής από A* αποτελέσματα"""
         path = []
         current = end
-        
+
         while current is not None:
             path.append(current)
             current = came_from.get(current)
-        
+
         path.reverse()
-        
+
         if not path or path[0] != start:
             return None
-        
-        # Μετατροπή σε coordinates και υπολογισμός στατιστικών
+
         coords = []
-        total_distance = 0
-        total_time = 0
+        total_distance = 0.0
+        total_time = 0.0
         instructions = []
-        
+
         for i, node in enumerate(path):
-            if node in self.nodes:
-                lat, lon = self.nodes[node]
-                coords.append([lon, lat])
-                
-                if i > 0:
-                    prev_node = path[i-1]
-                    # Βρες την ακμή για να πάρεις το κόστος
-                    for edge_data in self.graph.get(prev_node, []):
-                        if len(edge_data) >= 3 and edge_data[0] == node:
-                            distance, time_cost = edge_data[1], edge_data[2]
-                            total_distance += distance
-                            total_time += time_cost
-                            
-                            # Δημιουργία οδηγίας
-                            instructions.append({
-                                'distance': distance,
-                                'time': time_cost,
-                                'instruction': f"Continue for {distance:.2f}km"
-                            })
-                            break
-        
+            if node not in self.nodes:
+                continue
+            lat, lon = self.nodes[node]
+            coords.append([lon, lat])
+
+            if i > 0:
+                prev_node = path[i - 1]
+                if prev_node not in self.nodes:
+                    continue
+                prev_lat, prev_lon = self.nodes[prev_node]
+                direction = self._get_direction(prev_lat, prev_lon, lat, lon)
+
+                # Βρες την ακμή για ακριβές κόστος
+                edge_dist = edge_time = None
+                for edge_data in self.graph.get(prev_node, []):
+                    if len(edge_data) >= 3 and edge_data[0] == node:
+                        edge_dist, edge_time = edge_data[1], edge_data[2]
+                        break
+
+                if edge_dist is not None:
+                    total_distance += edge_dist
+                    total_time += edge_time
+                    instructions.append({
+                        'instruction': direction,
+                        'distance': edge_dist,
+                        'duration': edge_time,
+                    })
+
         return coords, total_distance, total_time, instructions
     
     def _update_astar_stats(self, search_time: float, nodes_explored: int):

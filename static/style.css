@@ -438,7 +438,6 @@ body.sidebar-collapsed .sidebar-tab i { transform: rotate(180deg); }
 /* --- Route info ------------------------------------------- */
 #routeInfo {
     border-top: 1px solid var(--border);
-    animation: fadeUp .2s var(--ease);
 }
 
 .route-summary {

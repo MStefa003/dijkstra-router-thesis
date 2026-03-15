@@ -38,7 +38,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     /* ---- Map click: set start then end ---- */
     map.on('click', function (e) {
-        if (window.innerWidth < 768) {
+        if (window.innerWidth <= 700) {
             const sidebar = document.getElementById('sidebar');
             if (sidebar) sidebar.classList.remove('active');
         }
@@ -203,6 +203,10 @@ function setupAutocomplete(inputId, coordsId, acId) {
     });
 
     input.addEventListener('focus', function () {
+        // Close any other open dropdown first
+        document.querySelectorAll('.ac-dropdown').forEach(function (d) {
+            if (d !== dropdown) d.classList.remove('open');
+        });
         if (dropdown.childElementCount > 0) {
             dropdown.classList.add('open');
         }
@@ -327,7 +331,7 @@ function updateMarker(latlng, type) {
    Route calculation
    ============================================================ */
 
-function calculateRoute() {
+async function calculateRoute() {
     const startInput = document.getElementById('startCoords');
     const endInput   = document.getElementById('endCoords');
 
@@ -339,39 +343,42 @@ function calculateRoute() {
     const startCoords = JSON.parse(startInput.value);
     const endCoords   = JSON.parse(endInput.value);
 
-    // Clear previous route
     clearRouteFromMap();
 
-    // Loading state
-    const submitBtn  = document.querySelector('#routeForm ~ .search-action .route-btn, .search-action .route-btn');
+    const submitBtn  = document.querySelector('.search-action .route-btn');
     const submitText = document.getElementById('submitBtnText');
     if (submitBtn) submitBtn.disabled = true;
     if (submitText) submitText.innerHTML = '<span class="loader"></span> Υπολογισμός...';
+    showToast('Λήψη δεδομένων χάρτη, παρακαλώ περιμένετε…', 'info');
 
     document.getElementById('routeInfo').style.display = 'none';
     document.getElementById('routeInstructions').style.display = 'none';
 
-    var routeBody = JSON.stringify({ start: startCoords, end: endCoords, type: 'driving' });
-    function postRoute(url) {
-        return fetch(url, {
+    const routeBody = JSON.stringify({ start: startCoords, end: endCoords, type: 'driving' });
+
+    async function postRoute(url) {
+        const r = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: routeBody
-        }).then(function (r) { return r.json(); });
+        });
+        return r.json();
     }
 
-    postRoute('/route_with_traffic_visualization')
-    .catch(function () {
-        return postRoute('/route');
-    })
-    .then(function (data) {
-        // Handle both endpoints' error shapes
+    try {
+        let data;
+        try {
+            data = await postRoute('/route_with_traffic_visualization');
+        } catch (_) {
+            data = await postRoute('/route');
+        }
+
         if (data.error) throw new Error(data.error);
         if (data.success === false) throw new Error(data.message || 'Δεν βρέθηκε διαδρομή');
 
         window.lastRouteData = data;
-        const routeData   = data.route;
-        const isApprox    = data.isApproximate || false;
+        const routeData = data.route;
+        const isApprox  = data.isApproximate || false;
 
         if (!routeData || !routeData.geometry || !Array.isArray(routeData.geometry)) {
             throw new Error('Δεν κατέστη δυνατή η εύρεση διαδρομής. Δοκιμάστε σημεία κοντά σε δρόμους.');
@@ -400,38 +407,24 @@ function calculateRoute() {
             showToast('Προσοχή: Προσεγγιστική διαδρομή — ίσως να μην ακολουθεί το οδικό δίκτυο.', 'warning');
         }
 
-        // Distance / duration
         const distance = routeData.distance_km || routeData.distance;
-        let duration;
-        if (routeData.duration_seconds) {
-            duration = routeData.duration_seconds;
-        } else if (typeof routeData.duration === 'number') {
-            duration = routeData.duration;
-        } else {
-            duration = 0;
-        }
+        const duration = routeData.duration_seconds ?? routeData.duration ?? 0;
 
         displayRouteInfo(distance, duration, isApprox);
 
-        // Steps
-        if (routeData.steps && routeData.steps.length > 0) {
-            showRouteInstructions(routeData.steps);
-        } else if (window.routeSteps) {
-            showRouteInstructions(window.routeSteps);
-        }
+        const steps = routeData.steps && routeData.steps.length > 0
+            ? routeData.steps
+            : window.routeSteps;
+        if (steps) showRouteInstructions(steps);
         window.routeSteps = routeData.steps;
 
         showToast('Η διαδρομή υπολογίστηκε!', 'success');
-    })
-    .catch(function (err) {
+    } catch (err) {
         showToast('Σφάλμα: ' + err.message, 'error');
-    })
-    .finally(function () {
-        const btn  = document.querySelector('.search-action .route-btn');
-        const text = document.getElementById('submitBtnText');
-        if (btn)  btn.disabled = false;
-        if (text) text.innerHTML = 'Εύρεση Διαδρομής';
-    });
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
+        if (submitText) submitText.innerHTML = 'Εύρεση Διαδρομής';
+    }
 }
 
 /* ============================================================
@@ -480,15 +473,24 @@ function displayRouteInfo(distance, durationSec, isApprox) {
 function getStepIcon(instruction) {
     if (!instruction) return 'fa-arrow-up';
     const t = instruction.toLowerCase();
-    if (t.includes('δεξιά') || t.includes('right'))         return 'fa-turn-right';
+    // Greek 8-direction labels from backend
+    if (t.includes('βορειοανατολ'))  return 'fa-turn-right';
+    if (t.includes('νοτιοανατολ'))   return 'fa-turn-right';
+    if (t.includes('βορειοδυτ'))     return 'fa-turn-left';
+    if (t.includes('νοτιοδυτ'))      return 'fa-turn-left';
+    if (t.includes('ανατολ'))        return 'fa-arrow-right';
+    if (t.includes('δυτ'))           return 'fa-arrow-left';
+    if (t.includes('νότια'))         return 'fa-arrow-down';
+    if (t.includes('βόρεια') || t.includes('ευθεία') || t.includes('συνέχεια')) return 'fa-arrow-up';
+    // Generic keywords
+    if (t.includes('δεξιά')  || t.includes('right'))        return 'fa-turn-right';
     if (t.includes('αριστερά') || t.includes('left'))       return 'fa-turn-left';
     if (t.includes('φτάσατε') || t.includes('arrive') || t.includes('destination')) return 'fa-flag-checkered';
     if (t.includes('αναχωρ') || t.includes('depart') || t.includes('head'))         return 'fa-circle-dot';
     if (t.includes('στρογγυλ') || t.includes('roundabout') || t.includes('κυκλ'))   return 'fa-rotate-right';
     if (t.includes('συγχωνε') || t.includes('merge'))       return 'fa-code-merge';
-    if (t.includes('έξοδο') || t.includes('exit'))          return 'fa-right-from-bracket';
-    if (t.includes('ελαφρά δεξ') || t.includes('slight right')) return 'fa-arrow-right';
-    if (t.includes('ελαφρά αρ')  || t.includes('slight left'))  return 'fa-arrow-left';
+    if (t.includes('έξοδο')  || t.includes('exit'))         return 'fa-right-from-bracket';
+    if (t.includes('continue'))                              return 'fa-arrow-up';
     return 'fa-arrow-up';
 }
 
@@ -506,8 +508,8 @@ function showRouteInstructions(steps) {
 
     const html = safeSteps.map(function (s) {
         const icon = getStepIcon(s.instruction);
-        const dist = s.distance ? `${parseFloat(s.distance).toFixed(2)} χλμ` : '';
-        const dur  = s.duration ? formatDuration(s.duration) : '';
+        const dist = s.distance ? formatStepDistance(s.distance) : '';
+        const dur  = (s.duration || s.time) ? formatDuration(s.duration || s.time) : '';
         return `
             <div class="step-item">
                 <div class="step-icon"><i class="fas ${icon}"></i></div>
@@ -530,6 +532,14 @@ function formatDuration(sec) {
     const h = Math.floor(m / 60);
     const rem = m % 60;
     return rem > 0 ? `${h} ώρ. ${rem} λεπ.` : `${h} ώρ.`;
+}
+
+function formatStepDistance(distKm) {
+    if (!distKm) return '';
+    const km = parseFloat(distKm);
+    if (km < 0.001) return '';
+    if (km < 1) return `${Math.round(km * 1000)} μ.`;
+    return `${km.toFixed(1)} χλμ`;
 }
 
 /* ============================================================

@@ -280,12 +280,10 @@ class Dijkstra:
     def _standard_dijkstra(self, start, end, route_direct_distance):
         """Κλασικός αλγόριθμος Dijkstra για μικρές αποστάσεις"""
             
-        # αρχικοποίηση μεταβλητών Dijkstra
-        distances = {node: float('infinity') for node in self.graph}
-        distances[start] = 0
-        times = {node: float('infinity') for node in self.nodes}
-        times[start] = 0
-        prev_nodes = {node: None for node in self.nodes}
+        # αρχικοποίηση μεταβλητών Dijkstra (sparse dicts — γρηγορότερα και λιγότερη μνήμη)
+        distances = {start: 0.0}
+        times = {start: 0.0}
+        prev_nodes = {start: None}
         
         # ουρά προτεραιότητας ([χρόνος, απόσταση, κόμβος])
         pq = [(0, 0, start)]
@@ -358,7 +356,7 @@ class Dijkstra:
                     heapq.heappush(pq, (new_time, new_dist, neighbor))
         
         # αν δεν υπάρχει διαδρομή, επιστρέφει None
-        if prev_nodes[end] is None:
+        if end not in prev_nodes:
             print("Δε βρέθηκε διαδρομή")
             return None
             
@@ -463,9 +461,9 @@ class Dijkstra:
         path = []
         current = end
         # ξεκινάμε από το τέλος και πάμε προς την αρχή
-        while current:
+        while current is not None:
             path.append(current)
-            current = prev_nodes[current]
+            current = prev_nodes.get(current)
         # αναστρέφουμε τη λίστα για να πάρουμε τη σωστή σειρά
         path.reverse()
         
