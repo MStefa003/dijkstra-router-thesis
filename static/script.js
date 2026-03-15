@@ -7,10 +7,17 @@ document.addEventListener('DOMContentLoaded', function() {
     // αρχικοποίηση χάρτη
     map = L.map('map').setView([38.2, 23.7], 7);
     
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: ' OpenStreetMap contributors',
-        maxZoom: 19
-    }).addTo(map);
+    const lightTiles = L.tileLayer(
+        'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+        { attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>', maxZoom: 19 }
+    );
+    const darkTiles = L.tileLayer(
+        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        { attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>', maxZoom: 19 }
+    );
+    window._lightTiles = lightTiles;
+    window._darkTiles  = darkTiles;
+    lightTiles.addTo(map);
     
     // αναζήτηση για εισόδους
     setupGeocoder('startLocation', 'startCoords');
@@ -169,8 +176,15 @@ document.addEventListener('DOMContentLoaded', function() {
             document.documentElement.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
             
-            // Refresh the map to update tiles with dark/light mode
-            if (map) {
+            // Swap tile layers for dark/light mode
+            if (map && window._lightTiles && window._darkTiles) {
+                if (newTheme === 'dark') {
+                    map.removeLayer(window._lightTiles);
+                    window._darkTiles.addTo(map);
+                } else {
+                    map.removeLayer(window._darkTiles);
+                    window._lightTiles.addTo(map);
+                }
                 map.invalidateSize();
             }
             
@@ -333,15 +347,12 @@ function updateMarker(latlng, type) {
         }
         return true;
     });
-    
-    // Create custom icon based on type
-    const icon = L.divIcon({
-        className: `custom-marker custom-marker-${type}`,
-        html: `<div class="marker-container"><i class="fas ${type==='start'?'fa-map-marker-alt':'fa-flag-checkered'}"></i></div>`,
-        iconSize: [36, 36],
-        iconAnchor: [18, 36]
-    });
-    
+
+    // Google Maps-style icon
+    const icon = type === 'start'
+        ? L.divIcon({ className: '', html: '<div class="gm-dot-start"></div>', iconSize: [14,14], iconAnchor: [7,7] })
+        : L.divIcon({ className: '', html: '<div class="gm-pin-end"></div>',  iconSize: [24,30], iconAnchor: [12,28] });
+
     const marker = L.marker(latlng, {icon: icon, riseOnHover: true}).addTo(map);
     
     // Add popup with location info
@@ -579,39 +590,32 @@ function calculateRoute() {
 }
 
 function displayRouteInfo(distance, duration) {
-    // Η τιμή distance έρχεται ήδη σε χιλιόμετρα από το backend (με 2 δεκαδικά)
-    let formattedDistance = distance + ' χλμ';
+    const hours   = Math.floor(duration / 3600);
+    const minutes = Math.floor((duration % 3600) / 60);
+    const timeStr = hours > 0
+        ? `${hours} ώρ${hours > 1 ? '' : ''} ${minutes} λεπ`
+        : `${minutes} λεπτά`;
 
-    // Μορφοποίηση διάρκειας (μετατροπή από δευτερόλεπτα)
-    let hours = Math.floor(duration / 3600);
-    let minutes = Math.floor((duration % 3600) / 60);
-    let formattedDuration;
-
-    if (hours > 0) {
-        formattedDuration = hours + ' ώρ ' + minutes + ' λεπ';
-    } else {
-        formattedDuration = minutes + ' λεπτά';
-    }
-
-    // Εμφάνιση πληροφοριών διαδρομής
     const routeInfoDiv = document.getElementById('routeInfo');
-    if (routeInfoDiv) {
-        routeInfoDiv.innerHTML = `
-            <div class="route-info-container">
-                <div class="info-item">
-                    <i class="fas fa-route"></i>
-                    <span>${formattedDistance}</span>
-                </div>
-                <div class="info-item">
-                    <i class="fas fa-clock"></i>
-                    <span>${formattedDuration}</span>
-                </div>
+    if (!routeInfoDiv) return;
+
+    routeInfoDiv.innerHTML = `
+        <div class="ri-row">
+            <div class="ri-icon"><i class="fas fa-clock"></i></div>
+            <div>
+                <div class="ri-value">${timeStr}</div>
+                <div class="ri-label">Εκτιμώμενος χρόνος</div>
             </div>
-        `;
-        routeInfoDiv.style.display = 'block';
-    } else {
-        console.error('Element with ID "routeInfo" not found');
-    }
+        </div>
+        <div class="ri-row">
+            <div class="ri-icon"><i class="fas fa-road"></i></div>
+            <div>
+                <div class="ri-value">${distance} χλμ</div>
+                <div class="ri-label">Απόσταση</div>
+            </div>
+        </div>
+    `;
+    routeInfoDiv.style.display = 'block';
 }
 
 function resetMap() {
@@ -731,25 +735,32 @@ function drawRoutePolyline(coords) {
         routePolyline.setStyle({className:'leaflet-polyline-gradient'});
     });
 }
-// --- Custom Markers ---
+// --- Custom Markers (Google Maps style) ---
 function updateMarker(latlng, type) {
-    // Remove existing marker of this type
     markers = markers.filter(m => {
-        if (m.type === type) {
-            map.removeLayer(m.marker);
-            return false;
-        }
+        if (m.type === type) { map.removeLayer(m.marker); return false; }
         return true;
     });
-    // Create custom icon based on type
-    const icon = L.divIcon({
-        className: `custom-marker custom-marker-${type}`,
-        html: `<div class="marker-container"><i class="fas ${type==='start'?'fa-map-marker-alt':'fa-flag-checkered'}"></i></div>`,
-        iconSize: [36, 36],
-        iconAnchor: [18, 36]
-    });
-    const marker = L.marker(latlng, {icon: icon, riseOnHover: true}).addTo(map);
-    markers.push({marker, type});
+
+    let icon;
+    if (type === 'start') {
+        icon = L.divIcon({
+            className: '',
+            html: '<div class="gm-dot-start"></div>',
+            iconSize: [14, 14],
+            iconAnchor: [7, 7]
+        });
+    } else {
+        icon = L.divIcon({
+            className: '',
+            html: '<div class="gm-pin-end"></div>',
+            iconSize: [24, 30],
+            iconAnchor: [12, 28]
+        });
+    }
+
+    const marker = L.marker(latlng, { icon, riseOnHover: true }).addTo(map);
+    markers.push({ marker, type });
 }
 // --- Copy to Clipboard ---
 document.addEventListener('click', function(e) {

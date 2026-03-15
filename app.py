@@ -1,3 +1,7 @@
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
 from flask import Flask, request, jsonify, render_template
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from routing.route_manager import RouteManager
@@ -8,7 +12,6 @@ import os
 from dotenv import load_dotenv
 import json
 import polyline
-import sys
 import math
 
 # Βεβαιωνόμαστε ότι ο φάκελος του project είναι στο PYTHONPATH

@@ -4,97 +4,93 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Εύρεση Διαδρομής</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+
     <div class="toast-container"></div>
-    
-    <div class="container-fluid">
-        <div class="row">
-            <div class="col-md-3 sidebar">
-                <div class="card fade-in">
-                    <div class="card-body">
-                        <h5 class="card-title"><i class="fas fa-route"></i> Εύρεση Διαδρομής</h5>
-                        <form id="routeForm">
-                            <div class="mb-3">
-                                <label for="startLocation" class="form-label"><i class="fas fa-map-marker-alt text-danger"></i> Αφετηρία</label>
-                                <div class="input-group">
-                                    <span class="input-group-text"><i class="fas fa-search-location"></i></span>
-                                    <input type="text" class="form-control" id="startLocation" placeholder="Πληκτρολογήστε τοποθεσία..." required autofocus>
-                                    <button type="button" class="btn btn-outline-secondary" id="useCurrentLocation" title="Χρήση τρέχουσας τοποθεσίας">
-                                        <i class="fas fa-location-arrow"></i>
-                                    </button>
-                                    <input type="hidden" id="startCoords">
-                                </div>
-                                <small class="text-muted">Κάντε κλικ στο χάρτη ή πληκτρολογήστε μια τοποθεσία</small>
-                            </div>
-                            <div class="mb-3">
-                                <label for="endLocation" class="form-label"><i class="fas fa-flag-checkered text-success"></i> Προορισμός</label>
-                                <div class="input-group">
-                                    <span class="input-group-text"><i class="fas fa-search-location"></i></span>
-                                    <input type="text" class="form-control" id="endLocation" placeholder="Πληκτρολογήστε τοποθεσία..." required>
-                                    <input type="hidden" id="endCoords">
-                                </div>
-                                <small class="text-muted">Κάντε κλικ στο χάρτη ή πληκτρολογήστε μια τοποθεσία</small>
-                            </div>
-                            <button type="submit" class="btn btn-primary w-100">
-                                <span id="submitBtnText"><i class="fas fa-search"></i> Εύρεση Διαδρομής</span>
-                            </button>
-                        </form>
-                        
-                        <div id="routeInfo" class="mt-4 fade-in" style="display: none;">
-                            <div class="route-details">
-                                <div class="d-flex align-items-center mb-2">
-                                    <i class="fas fa-road me-2 text-primary"></i>
-                                    <div>
-                                        <strong>Απόσταση:</strong> <span id="distance">0</span> χλμ
-                                    </div>
-                                </div>
-                                <div class="d-flex align-items-center">
-                                    <i class="fas fa-clock me-2 text-primary"></i>
-                                    <div>
-                                        <strong>Εκτιμώμενος χρόνος:</strong> <span id="duration">0</span>
-                                    </div>
-                                </div>
-                                <!-- Απόκρυψη οδηγιών διαδρομής -->
-                                <div id="routeInstructions" class="mt-3" style="display:none;"></div>
-                            </div>
-                        </div>
+
+    <!-- Full-screen map sits behind everything -->
+    <div id="map"></div>
+
+    <!-- Floating directions panel -->
+    <aside class="sidebar" id="sidebar">
+
+        <div class="panel-brand">
+            <i class="fas fa-route"></i>
+            <span>Δρομολόγηση</span>
+        </div>
+
+        <form id="routeForm" autocomplete="off">
+            <div class="waypoints">
+
+                <!-- Left: visual connector (dot → line → dot) -->
+                <div class="wp-connector" aria-hidden="true">
+                    <div class="wp-dot wp-dot-a"></div>
+                    <div class="wp-line"></div>
+                    <div class="wp-dot wp-dot-b"></div>
+                </div>
+
+                <!-- Right: inputs -->
+                <div class="wp-inputs">
+                    <div class="wp-field">
+                        <input type="text" id="startLocation" class="loc-input"
+                               placeholder="Αφετηρία" autocomplete="off">
+                        <button type="button" id="useCurrentLocation" class="field-action"
+                                title="Τρέχουσα τοποθεσία">
+                            <i class="fas fa-location-arrow"></i>
+                        </button>
+                        <input type="hidden" id="startCoords">
+                    </div>
+                    <div class="wp-field">
+                        <input type="text" id="endLocation" class="loc-input"
+                               placeholder="Προορισμός" autocomplete="off">
+                        <input type="hidden" id="endCoords">
                     </div>
                 </div>
             </div>
-            <div class="col-md-9 map-container">
-                <div id="map"></div>
-                <div class="map-overlay">
-                    <button id="resetMapBtn" class="theme-toggle" title="Επαναφορά όλων - Νέα αναζήτηση (F5 ή Esc)">
-                        <i class="fas fa-sync-alt"></i>
-                    </button>
-                    <button id="toggleSidebar" class="theme-toggle d-md-none" title="Μενού">
-                        <i class="fas fa-bars"></i>
-                    </button>
-                    <button id="themeToggle" class="theme-toggle" title="Dark/Light Mode">
-                        <i class="fas fa-moon"></i>
-                    </button>
-                </div>
-            </div>
-        </div>
+
+            <button type="submit" class="route-btn">
+                <span id="submitBtnText">
+                    <i class="fas fa-directions"></i> Εύρεση Διαδρομής
+                </span>
+            </button>
+        </form>
+
+        <!-- Route result (injected by JS) -->
+        <div id="routeInfo" style="display:none;"></div>
+        <div id="routeInstructions" style="display:none;"></div>
+
+    </aside>
+
+    <!-- Floating action buttons (top-right over map) -->
+    <div class="map-fabs">
+        <button id="resetMapBtn" class="theme-toggle fab-btn" title="Επαναφορά (Esc)">
+            <i class="fas fa-redo-alt"></i>
+        </button>
+        <button id="themeToggle" class="theme-toggle fab-btn" title="Αλλαγή θέματος">
+            <i class="fas fa-moon"></i>
+        </button>
+        <button id="toggleSidebar" class="theme-toggle fab-btn mob-only" title="Μενού">
+            <i class="fas fa-bars"></i>
+        </button>
     </div>
 
     <!-- SVG gradient for route polyline -->
-    <svg width="0" height="0">
-      <defs>
-        <linearGradient id="route-gradient" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="#ea4335"/>
-          <stop offset="100%" stop-color="#34a853"/>
-        </linearGradient>
-      </defs>
+    <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+        <defs>
+            <linearGradient id="route-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#ea4335"/>
+                <stop offset="100%" stop-color="#34a853"/>
+            </linearGradient>
+        </defs>
     </svg>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
