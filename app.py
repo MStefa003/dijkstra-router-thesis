@@ -21,12 +21,26 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 # φορτώνουμε τις μεταβλητές περιβάλλοντος
 load_dotenv()
 
+def _validate_coords(coords, label=''):
+    """Ελέγχει ότι οι συντεταγμένες είναι έγκυρες [lon, lat]."""
+    if not isinstance(coords, (list, tuple)) or len(coords) < 2:
+        return f"Άκυρη μορφή συντεταγμένων {label}"
+    try:
+        lon, lat = float(coords[0]), float(coords[1])
+    except (TypeError, ValueError):
+        return f"Μη αριθμητικές συντεταγμένες {label}"
+    if not (-180 <= lon <= 180):
+        return f"Γεωγραφικό μήκος εκτός ορίων {label}: {lon}"
+    if not (-90 <= lat <= 90):
+        return f"Γεωγραφικό πλάτος εκτός ορίων {label}: {lat}"
+    return None  # OK
+
 # Κρατάω στατιστικά για τον server μου:
 num_requests = 0
 start_time = time.time()
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-here'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Δημιουργία αντικειμένου RouteManager
@@ -72,7 +86,11 @@ def get_route():
         start_coords = data['start']  # [lon, lat]
         end_coords = data['end']      # [lon, lat]
         route_type = data.get('type', 'driving')  # Προεπιλογή σε 'driving' αν δεν έχει οριστεί
-        
+
+        err = _validate_coords(start_coords, 'αφετηρίας') or _validate_coords(end_coords, 'προορισμού')
+        if err:
+            return jsonify({'error': err}), 400
+
         # Εδώ φτιάχνω καλύτερο debugging
         print(f"Αίτημα #{num_requests}: Υπολογισμός διαδρομής από {start_coords} σε {end_coords}")
         print(f"Τύπος: {route_type}")
@@ -87,44 +105,9 @@ def get_route():
             
             if not geometry:
                 print(f"Αποτυχία εύρεσης διαδρομής από {start_coords} προς {end_coords}")
-                # Αντί για σφάλμα, επιστρέφουμε μια ευθεία γραμμή ως πρόχειρη διαδρομή
-                # Αυτό βοηθάει το UI να δείξει κάτι αντί για σφάλμα
-                start_lat, start_lon = start_coords[1], start_coords[0]
-                end_lat, end_lon = end_coords[1], end_coords[0]
-                
-                # Υπολογισμός απόστασης σε ευθεία γραμμή με Haversine
-                from_lon, from_lat = start_coords[0], start_coords[1]
-                to_lon, to_lat = end_coords[0], end_coords[1]
-                
-                # Μετατροπή από μοίρες σε ακτίνια
-                from_lon, from_lat, to_lon, to_lat = map(math.radians, [from_lon, from_lat, to_lon, to_lat])
-                
-                # Τύπος haversine
-                dlon = to_lon - from_lon
-                dlat = to_lat - from_lat
-                a = math.sin(dlat/2)**2 + math.cos(from_lat) * math.cos(to_lat) * math.sin(dlon/2)**2
-                c = 2 * math.asin(math.sqrt(a))
-                r = 6371  # Ακτίνα της Γης σε χιλιόμετρα
-                distance = c * r
-                
-                # Εκτίμηση διάρκειας με μέση ταχύτητα 70 km/h
-                duration = (distance / 70) * 3600  # Δευτερόλεπτα
-                
-                # Δημιουργία απλής ευθείας γραμμής
-                geometry = [[start_coords[0], start_coords[1]], [end_coords[0], end_coords[1]]]
-                steps = [{
-                    'instruction': 'Κατευθυνθείτε προς τον προορισμό',
-                    'distance': distance,
-                    'duration': duration
-                }]
-                
-                print(f"Δημιουργήθηκε πρόχειρη ευθεία διαδρομή απόστασης {distance:.2f} χλμ")
-                
-                # Ορίζουμε ότι αυτή είναι μια προσεγγιστική διαδρομή
-                isApproximate = True
-            else:
-                # Αν βρέθηκε κανονική διαδρομή, τότε δεν είναι προσεγγιστική
-                isApproximate = False
+                return jsonify({'error': 'Δεν βρέθηκε διαδρομή. Δοκιμάστε σημεία κοντά σε δρόμους.'}), 404
+
+            isApproximate = False
                 
             # Μορφοποίηση των βημάτων για εμφάνιση
             formatted_steps = route_manager.format_steps(steps)
@@ -188,7 +171,11 @@ def get_route_new():
         start_coords = data['start']  # [lon, lat]
         end_coords = data['end']      # [lon, lat]
         route_type = data.get('type', 'driving')
-        
+
+        err = _validate_coords(start_coords, 'αφετηρίας') or _validate_coords(end_coords, 'προορισμού')
+        if err:
+            return jsonify({'success': False, 'message': err}), 400
+
         # χρήση του global route manager
         global route_manager
         

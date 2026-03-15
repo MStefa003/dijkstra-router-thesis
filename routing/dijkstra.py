@@ -253,10 +253,14 @@ class Dijkstra:
             
         coords, total_dist, total_time, instr = result
         
-        # Αποθήκευση στο cache
+        # Αποθήκευση στο cache (LRU eviction: max 200 entries)
         search_time = time.time() - search_start_time
         self._update_performance_stats(search_time)
-        
+
+        if len(self.route_cache) >= 200:
+            oldest_key = next(iter(self.route_cache))
+            del self.route_cache[oldest_key]
+
         cache_result = {
             'geometry': coords,
             'distance': total_dist,
@@ -498,34 +502,38 @@ class Dijkstra:
         
         previous_lon = None
         previous_lat = None
+        previous_node = None
         total_dist = 0
         total_time = 0
-        
-        for i, node in enumerate(path):
+
+        for node in path:
+            if node not in self.nodes:
+                continue
             lat, lon = self.nodes[node]
             coords.append([lon, lat])
-            
+
             # Υπολογισμός πληροφοριών για το βήμα
             if previous_lon is not None and previous_lat is not None:
                 step_dist = self.haversine(previous_lon, previous_lat, lon, lat)
                 total_dist += step_dist
-                
+
                 # Βελτιωμένος υπολογισμός χρόνου με εκτίμηση ταχύτητας
-                estimated_speed = self._estimate_speed_between_nodes(path[i-1], node)
+                estimated_speed = self._estimate_speed_between_nodes(previous_node, node)
                 step_time = (step_dist / estimated_speed) * 3600  # δευτερόλεπτα
                 total_time += step_time
-                
+
                 # Υπολογισμός κατεύθυνσης κίνησης
                 direction = self.get_direction(previous_lat, previous_lon, lat, lon)
-                
+
                 instr.append({
                     'instruction': direction,
                     'distance': step_dist,
                     'duration': step_time
                 })
-                
+
             previous_lat = lat
             previous_lon = lon
+            previous_node = node
         
         return coords, total_dist, total_time, instr
     

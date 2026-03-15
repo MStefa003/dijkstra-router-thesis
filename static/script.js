@@ -8,6 +8,7 @@ let markers = [];
 let userLocationMarker = null;
 let routePolyline = null;
 let animatedRoutePolyline = null;
+let _routeAbortController = null;  // cancel in-flight route requests
 
 document.addEventListener('DOMContentLoaded', function () {
 
@@ -106,6 +107,11 @@ document.addEventListener('DOMContentLoaded', function () {
         const endMarker   = markers.find(m => m.type === 'end');
         if (startMarker) startMarker.type = 'end';
         if (endMarker)   endMarker.type   = 'start';
+
+        // Clear stale route — coords have changed, old route is now wrong
+        clearRouteFromMap();
+        document.getElementById('routeInfo').style.display = 'none';
+        document.getElementById('routeInstructions').style.display = 'none';
 
         showToast('Αφετηρία και προορισμός εναλλάχθηκαν.', 'info');
     });
@@ -340,8 +346,21 @@ async function calculateRoute() {
         return;
     }
 
-    const startCoords = JSON.parse(startInput.value);
-    const endCoords   = JSON.parse(endInput.value);
+    let startCoords, endCoords;
+    try {
+        startCoords = JSON.parse(startInput.value);
+        endCoords   = JSON.parse(endInput.value);
+    } catch (_) {
+        showToast('Άκυρες συντεταγμένες. Επιλέξτε τοποθεσίες από τη λίστα.', 'error');
+        return;
+    }
+
+    // Cancel any previous in-flight request
+    if (_routeAbortController) {
+        _routeAbortController.abort();
+    }
+    _routeAbortController = new AbortController();
+    const signal = _routeAbortController.signal;
 
     clearRouteFromMap();
 
@@ -360,7 +379,8 @@ async function calculateRoute() {
         const r = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: routeBody
+            body: routeBody,
+            signal
         });
         return r.json();
     }
@@ -420,7 +440,9 @@ async function calculateRoute() {
 
         showToast('Η διαδρομή υπολογίστηκε!', 'success');
     } catch (err) {
-        showToast('Σφάλμα: ' + err.message, 'error');
+        if (err.name !== 'AbortError') {
+            showToast('Σφάλμα: ' + err.message, 'error');
+        }
     } finally {
         if (submitBtn) submitBtn.disabled = false;
         if (submitText) submitText.innerHTML = 'Εύρεση Διαδρομής';
