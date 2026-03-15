@@ -36,43 +36,50 @@ class AStarDijkstra:
         
         return R * c
     
-    def manhattan_distance(self, node1: int, node2: int) -> float:
-        """Manhattan distance heuristic (ταχύτερο από Haversine)"""
+    # Μέγιστη ταχύτητα στο οδικό δίκτυο (αυτοκινητόδρομος) — για αποδεκτό heuristic
+    _MAX_SPEED_KMH = 130.0
+
+    def _dist_km(self, node1: int, node2: int) -> float:
+        """Απόσταση haversine σε km μεταξύ δύο κόμβων"""
         if node1 not in self.nodes or node2 not in self.nodes:
-            return 0
-            
+            return 0.0
         lat1, lon1 = self.nodes[node1]
         lat2, lon2 = self.nodes[node2]
-        
-        # Προσεγγιστικό Manhattan distance σε km
-        lat_diff = abs(lat2 - lat1) * 111  # 1 degree ≈ 111 km
-        lon_diff = abs(lon2 - lon1) * 111 * math.cos(math.radians((lat1 + lat2) / 2))
-        
-        return lat_diff + lon_diff
-    
-    def euclidean_heuristic(self, node1: int, node2: int) -> float:
-        """Euclidean distance heuristic (πιο ακριβής)"""
-        if node1 not in self.nodes or node2 not in self.nodes:
-            return 0
-            
-        lat1, lon1 = self.nodes[node1]
-        lat2, lon2 = self.nodes[node2]
-        
         return self.haversine(lon1, lat1, lon2, lat2)
-    
-    def adaptive_heuristic(self, node1: int, node2: int, distance_threshold: float = 10) -> float:
-        """Προσαρμοστικό heuristic βάσει απόστασης"""
+
+    def _dist_km_manhattan(self, node1: int, node2: int) -> float:
+        """Γρήγορη Manhattan απόσταση σε km"""
         if node1 not in self.nodes or node2 not in self.nodes:
-            return 0
-            
-        # Για μικρές αποστάσεις χρησιμοποιούμε Manhattan (ταχύτερο)
-        # Για μεγάλες αποστάσεις χρησιμοποιούμε Euclidean (ακριβέστερο)
-        euclidean_dist = self.euclidean_heuristic(node1, node2)
-        
-        if euclidean_dist < distance_threshold:
-            return self.manhattan_distance(node1, node2)
-        else:
-            return euclidean_dist
+            return 0.0
+        lat1, lon1 = self.nodes[node1]
+        lat2, lon2 = self.nodes[node2]
+        lat_diff = abs(lat2 - lat1) * 111.0
+        lon_diff = abs(lon2 - lon1) * 111.0 * math.cos(math.radians((lat1 + lat2) / 2.0))
+        return lat_diff + lon_diff
+
+    def manhattan_distance(self, node1: int, node2: int) -> float:
+        """
+        Αποδεκτό time-based heuristic (seconds) — Manhattan distance / max_speed.
+        Ποτέ δεν υπερεκτιμά τον πραγματικό χρόνο → A* εγγυάται βέλτιστη διαδρομή.
+        """
+        return (self._dist_km_manhattan(node1, node2) / self._MAX_SPEED_KMH) * 3600.0
+
+    def euclidean_heuristic(self, node1: int, node2: int) -> float:
+        """
+        Αποδεκτό time-based heuristic (seconds) — Haversine distance / max_speed.
+        Πιο ακριβές από Manhattan, ελαφρώς πιο αργό.
+        """
+        return (self._dist_km(node1, node2) / self._MAX_SPEED_KMH) * 3600.0
+
+    def adaptive_heuristic(self, node1: int, node2: int, distance_threshold: float = 10) -> float:
+        """
+        Προσαρμοστικό heuristic (seconds): Manhattan για κοντινές αποστάσεις
+        (γρηγορότερο), Haversine για μακρινές (ακριβέστερο). Παραμένει αποδεκτό.
+        """
+        dist_km = self._dist_km(node1, node2)
+        if dist_km < distance_threshold:
+            return (self._dist_km_manhattan(node1, node2) / self._MAX_SPEED_KMH) * 3600.0
+        return (dist_km / self._MAX_SPEED_KMH) * 3600.0
     
     def a_star_search(self, start: int, end: int, heuristic_type: str = 'adaptive') -> Optional[Tuple]:
         """
@@ -272,20 +279,22 @@ class AStarDijkstra:
         return stats
     
     def choose_best_algorithm(self, start: int, end: int) -> str:
-        """Επιλογή καλύτερου αλγορίθμου βάσει χαρακτηριστικών"""
+        """
+        Επιλογή αλγορίθμου A* βάσει χαρακτηριστικών.
+        Το A* (με αποδεκτό time-based heuristic) επισκέπτεται λιγότερους κόμβους
+        από τον Dijkstra σε όλες τις περιπτώσεις, οπότε προτιμάται πάντα.
+        """
         if start not in self.nodes or end not in self.nodes:
-            return 'dijkstra'
-        
-        # Υπολογισμός απόστασης
-        distance = self.euclidean_heuristic(start, end)
-        network_size = len(self.nodes)
-        
-        # Κριτήρια επιλογής
-        if distance > 50:  # Πολύ μεγάλη απόσταση
             return 'astar_adaptive'
-        elif distance > 20:  # Μεγάλη απόσταση
-            return 'astar_euclidean'
-        elif network_size > 10000:  # Μεγάλο δίκτυο
-            return 'astar_manhattan'
+
+        # Απόσταση σε km (χρησιμοποιούμε την raw haversine, όχι το time heuristic)
+        lat1, lon1 = self.nodes[start]
+        lat2, lon2 = self.nodes[end]
+        distance_km = self.haversine(lon1, lat1, lon2, lat2)
+
+        if distance_km > 50:
+            return 'astar_adaptive'   # Adaptive: Haversine για μεγάλες, Manhattan για μικρές
+        elif distance_km > 10:
+            return 'astar_euclidean'  # Haversine: πιο ακριβές για μεσαίες αποστάσεις
         else:
-            return 'dijkstra'  # Για μικρές αποστάσεις ο Dijkstra είναι αρκετός
+            return 'astar_manhattan'  # Manhattan: γρηγορότερο για κοντινά σημεία

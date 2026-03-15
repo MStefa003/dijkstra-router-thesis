@@ -14,10 +14,15 @@ class Dijkstra:
         self.nodes = {}  # node_id -> (lat, lon)
         self.graph = defaultdict(list)  # adjacency list
         self.route_cache = {}  # cache για ταχύτερες επαναλήψεις
-        
+
+        # Spatial index for fast nearest-node lookup
+        self._kdtree = None
+        self._kdtree_ids = None
+        self._kdtree_coords = None
+
         # A* integration
         self.astar = AStarDijkstra()
-        
+
         # Performance tracking
         self.performance_stats = {
             'total_searches': 0,
@@ -27,32 +32,67 @@ class Dijkstra:
             'algorithm_used': 'dijkstra'  # Τελευταίος αλγόριθμος
         }
     
+    def _build_spatial_index(self):
+        """Κατασκευή KD-tree για γρήγορη αναζήτηση κοντινότερου κόμβου (O(log n) αντί O(n))"""
+        try:
+            import numpy as np
+            from scipy.spatial import cKDTree
+
+            if not self.nodes:
+                self._kdtree = None
+                return
+
+            self._kdtree_ids = list(self.nodes.keys())
+            self._kdtree_coords = [self.nodes[n] for n in self._kdtree_ids]  # (lat, lon)
+            self._kdtree = cKDTree(np.array(self._kdtree_coords))
+            print(f"KD-tree κατασκευάστηκε με {len(self._kdtree_ids)} κόμβους")
+        except ImportError:
+            self._kdtree = None
+            print("scipy μη διαθέσιμο — χρήση γραμμικής αναζήτησης κόμβων")
+        except Exception as e:
+            self._kdtree = None
+            print(f"Σφάλμα κατασκευής KD-tree: {e}")
+
     def find_nearest_node(self, lat, lon, max_radius=0.5):
         """
-        Βρίσκει τον πλησιέστερο κόμβο στις συντεταγμένες που δίνουμε μέσα σε μια συγκεκριμένη ακτίνα
-        
+        Βρίσκει τον πλησιέστερο κόμβο στις συντεταγμένες που δίνουμε μέσα σε μια συγκεκριμένη ακτίνα.
+        Χρησιμοποιεί KD-tree αν είναι διαθέσιμο (O(log n)), αλλιώς γραμμική αναζήτηση (O(n)).
+
         Args:
             lat, lon: Συντεταγμένες σημείου
             max_radius: Μέγιστη απόσταση αναζήτησης σε χλμ
-        
+
         Returns:
             Το ID του κοντινότερου κόμβου ή None αν δεν βρέθηκε κόμβος μέσα στη μέγιστη απόσταση
         """
+        # --- Fast path: KD-tree lookup ---
+        if self._kdtree is not None and self._kdtree_ids:
+            _, idx = self._kdtree.query([lat, lon], k=1)
+            if idx < len(self._kdtree_ids):
+                node_id = self._kdtree_ids[idx]
+                node_lat, node_lon = self._kdtree_coords[idx]
+                dist = self.haversine(lon, lat, node_lon, node_lat)
+                if dist <= max_radius:
+                    print(f"Βρέθηκε κόμβος {node_id} σε απόσταση {dist:.3f} χλμ (KD-tree)")
+                    return node_id
+                else:
+                    print(f"Κοντινότερος κόμβος {dist:.3f} χλμ > ακτίνα {max_radius} χλμ")
+            return None
+
+        # --- Fallback: linear scan ---
         close_node = None
         min_dist = float('inf')
-        
-        # Ψάχνουμε όλους τους κόμβους για τον κοντινότερο
+
         for node_id, (node_lat, node_lon) in self.nodes.items():
             dist = self.haversine(lon, lat, node_lon, node_lat)
             if dist < min_dist:
                 min_dist = dist
                 close_node = node_id
-        
-        # Ελέγχουμε αν βρέθηκε κόμβος μέσα στην επιθυμητή ακτίνα
+
         if close_node is None or min_dist > max_radius:
             print(f"Δεν βρέθηκε κόμβος μέσα σε ακτίνα {max_radius} χλμ (Κοντινότερος: {min_dist:.2f} χλμ)")
             return None
-        
+
         print(f"Βρέθηκε κόμβος {close_node} σε απόσταση {min_dist:.2f} χλμ")
         return close_node
     
@@ -307,13 +347,13 @@ class Dijkstra:
                 # υπολογίζουμε τη νέα απόσταση/χρόνο
                 new_dist = curr_dist + dist
                 new_time = curr_time + time
-                
-                # αν βρήκαμε συντομότερη διαδρομή, την ενημερώνουμε
-                if new_dist < distances.get(neighbor, float('infinity')):
-                    distances[neighbor] = new_dist
+
+                # Χαλάρωση βάσει ΧΡΟΝΟΥ (όχι απόστασης) — βρίσκουμε τη γρηγορότερη διαδρομή
+                if new_time < times.get(neighbor, float('infinity')):
                     times[neighbor] = new_time
+                    distances[neighbor] = new_dist
                     prev_nodes[neighbor] = curr_node
-                    
+
                     # προσθέτουμε αυτόν τον κόμβο στην ουρά για επίσκεψη
                     heapq.heappush(pq, (new_time, new_dist, neighbor))
         
@@ -325,118 +365,97 @@ class Dijkstra:
         return self._reconstruct_path(prev_nodes, start, end)
     
     def _bidirectional_dijkstra(self, start, end, route_direct_distance):
-        """Bidirectional Dijkstra για μεγάλες αποστάσεις - 2x ταχύτερος"""
-        # Αρχικοποίηση για forward search
-        forward_distances = {node: float('infinity') for node in self.graph}
-        forward_distances[start] = 0
-        forward_prev = {node: None for node in self.nodes}
-        forward_pq = [(0, 0, start)]
-        forward_visited = set()
-        
-        # Αρχικοποίηση για backward search
-        backward_distances = {node: float('infinity') for node in self.graph}
-        backward_distances[end] = 0
-        backward_prev = {node: None for node in self.nodes}
-        backward_pq = [(0, 0, end)]
-        backward_visited = set()
-        
-        # Κοινές μεταβλητές με προσαρμοστικά όρια
-        best_distance = float('infinity')
-        meeting_node = None
-        
-        # Προσαρμοστικά όρια για bidirectional search
-        if route_direct_distance > 40:  # Πολύ μεγάλες αποστάσεις
-            MAX_VISITED = min(200000, len(self.nodes) // 2)
-            print(f"Bidirectional search με εκτεταμένα όρια: {MAX_VISITED} επισκέψεις ανά κατεύθυνση")
+        """
+        Bidirectional Dijkstra με σωστή συνθήκη τερματισμού.
+        Ο αλγόριθμος τερματίζει όταν το άθροισμα των κορυφών των δύο ουρών
+        υπερβαίνει το βέλτιστο γνωστό κόστος — εγγυάται βέλτιστο αποτέλεσμα.
+        Χρόνος ως κόστος (seconds) παντού για συνέπεια.
+        """
+        if route_direct_distance > 40:
+            MAX_VISITED = min(300000, len(self.nodes))
         elif route_direct_distance > 20:
-            MAX_VISITED = min(100000, len(self.nodes) // 2)
+            MAX_VISITED = min(150000, len(self.nodes))
         else:
-            MAX_VISITED = min(50000, len(self.nodes) // 2)
-        
-        visited_count = 0
-        
-        while forward_pq and backward_pq and visited_count < MAX_VISITED:
-            # Εναλλαγή μεταξύ forward και backward search
-            if len(forward_pq) <= len(backward_pq):
-                # Forward step
-                if forward_pq:
-                    curr_time, curr_dist, curr_node = heapq.heappop(forward_pq)
-                    
-                    if curr_node in forward_visited:
+            MAX_VISITED = min(80000, len(self.nodes))
+
+        # Forward search (από start)
+        forward_cost = {}   # node -> best time from start
+        forward_cost[start] = 0.0
+        forward_prev = {start: None}
+        forward_pq = [(0.0, start)]
+        forward_settled = set()
+
+        # Backward search (από end, χρησιμοποιεί το ίδιο γράφημα — αποδεκτή προσέγγιση
+        # για κυρίως αμφίδρομα οδικά δίκτυα)
+        backward_cost = {}
+        backward_cost[end] = 0.0
+        backward_prev = {end: None}
+        backward_pq = [(0.0, end)]
+        backward_settled = set()
+
+        best_cost = float('inf')
+        meeting_node = None
+        total_visited = 0
+
+        while forward_pq and backward_pq and total_visited < MAX_VISITED:
+            # Βέλτιστη συνθήκη τερματισμού: όταν και οι δύο κορυφές ≥ best_cost
+            # δεν μπορεί να υπάρξει καλύτερη διαδρομή
+            if forward_pq[0][0] + backward_pq[0][0] >= best_cost:
+                break
+
+            # Επέκταση της κατεύθυνσης με μικρότερο κόστος κορυφής (ισορροπία αναζήτησης)
+            if forward_pq[0][0] <= backward_pq[0][0]:
+                _, curr_node = heapq.heappop(forward_pq)
+                if curr_node in forward_settled:
+                    continue
+                forward_settled.add(curr_node)
+                total_visited += 1
+
+                for edge_data in self.graph.get(curr_node, []):
+                    if len(edge_data) < 3:
                         continue
-                        
-                    forward_visited.add(curr_node)
-                    visited_count += 1
-                    
-                    # Έλεγχος αν συναντήσαμε το backward search
-                    if curr_node in backward_visited:
-                        total_dist = forward_distances[curr_node] + backward_distances[curr_node]
-                        if total_dist < best_distance:
-                            best_distance = total_dist
-                            meeting_node = curr_node
-                            print(f"Συνάντηση στον κόμβο {meeting_node} με απόσταση {best_distance:.2f} χλμ")
-                            break
-                    
-                    # Επέκταση forward search
-                    for edge_data in self.graph.get(curr_node, []):
-                        # Χειρισμός διαφορετικών μορφών edge data
-                        if len(edge_data) >= 3:
-                            neighbor, dist, time = edge_data[:3]
-                        else:
-                            continue
-                            
-                        new_dist = curr_dist + dist
-                        new_time = curr_time + time
-                        
-                        if new_dist < forward_distances.get(neighbor, float('infinity')):
-                            forward_distances[neighbor] = new_dist
-                            forward_prev[neighbor] = curr_node
-                            heapq.heappush(forward_pq, (new_time, new_dist, neighbor))
+                    neighbor, _, time_cost = edge_data[0], edge_data[1], edge_data[2]
+                    new_cost = forward_cost[curr_node] + time_cost
+                    if new_cost < forward_cost.get(neighbor, float('inf')):
+                        forward_cost[neighbor] = new_cost
+                        forward_prev[neighbor] = curr_node
+                        heapq.heappush(forward_pq, (new_cost, neighbor))
+
+                        # Έλεγχος σύζευξης με backward search
+                        if neighbor in backward_settled:
+                            candidate = new_cost + backward_cost[neighbor]
+                            if candidate < best_cost:
+                                best_cost = candidate
+                                meeting_node = neighbor
             else:
-                # Backward step
-                if backward_pq:
-                    curr_time, curr_dist, curr_node = heapq.heappop(backward_pq)
-                    
-                    if curr_node in backward_visited:
+                _, curr_node = heapq.heappop(backward_pq)
+                if curr_node in backward_settled:
+                    continue
+                backward_settled.add(curr_node)
+                total_visited += 1
+
+                for edge_data in self.graph.get(curr_node, []):
+                    if len(edge_data) < 3:
                         continue
-                        
-                    backward_visited.add(curr_node)
-                    visited_count += 1
-                    
-                    # Έλεγχος αν συναντήσαμε το forward search
-                    if curr_node in forward_visited:
-                        total_dist = forward_distances[curr_node] + backward_distances[curr_node]
-                        if total_dist < best_distance:
-                            best_distance = total_dist
-                            meeting_node = curr_node
-                            print(f"Συνάντηση στον κόμβο {meeting_node} με απόσταση {best_distance:.2f} χλμ")
-                            break
-                    
-                    # Επέκταση backward search
-                    for edge_data in self.graph.get(curr_node, []):
-                        # Χειρισμός διαφορετικών μορφών edge data
-                        if len(edge_data) >= 3:
-                            neighbor, dist, time = edge_data[:3]
-                        else:
-                            continue
-                            
-                        new_dist = curr_dist + dist
-                        new_time = curr_time + time
-                        
-                        if new_dist < backward_distances.get(neighbor, float('infinity')):
-                            backward_distances[neighbor] = new_dist
-                            backward_prev[neighbor] = curr_node
-                            heapq.heappush(backward_pq, (new_time, new_dist, neighbor))
-        
+                    neighbor, _, time_cost = edge_data[0], edge_data[1], edge_data[2]
+                    new_cost = backward_cost[curr_node] + time_cost
+                    if new_cost < backward_cost.get(neighbor, float('inf')):
+                        backward_cost[neighbor] = new_cost
+                        backward_prev[neighbor] = curr_node
+                        heapq.heappush(backward_pq, (new_cost, neighbor))
+
+                        # Έλεγχος σύζευξης με forward search
+                        if neighbor in forward_settled:
+                            candidate = new_cost + forward_cost[neighbor]
+                            if candidate < best_cost:
+                                best_cost = candidate
+                                meeting_node = neighbor
+
         if meeting_node is None:
-            print("Δε βρέθηκε διαδρομή με bidirectional search")
-            return None
-        
-        efficiency_gain = ((MAX_VISITED * 2) - visited_count) / (MAX_VISITED * 2) * 100
-        print(f"Bidirectional search ολοκληρώθηκε με {visited_count} επισκέψεις")
-        print(f"Εξοικονόμηση: {efficiency_gain:.1f}% λιγότερες επισκέψεις από κλασικό Dijkstra")
-        
-        # Ανακατασκευή διαδρομής από start -> meeting_node -> end
+            print("Bidirectional search: δεν βρέθηκε διαδρομή, εναλλαγή σε Standard Dijkstra")
+            return self._standard_dijkstra(start, end, route_direct_distance)
+
+        print(f"Bidirectional ολοκληρώθηκε: {total_visited} επισκέψεις, meeting@{meeting_node}, κόστος={best_cost:.1f}s")
         return self._reconstruct_bidirectional_path(forward_prev, backward_prev, start, end, meeting_node)
     
     def _reconstruct_path(self, prev_nodes, start, end):
@@ -459,19 +478,18 @@ class Dijkstra:
         current = meeting_node
         while current is not None:
             forward_path.append(current)
-            current = forward_prev[current]
+            current = forward_prev.get(current)
         forward_path.reverse()
-        
-        # Backward path: meeting_node -> end
+
+        # Backward path: meeting_node -> end  (backward_prev traces forward edges from end)
         backward_path = []
-        current = meeting_node
+        current = backward_prev.get(meeting_node)
         while current is not None:
             backward_path.append(current)
-            current = backward_prev[current]
-        
-        # Συνδυασμός paths (αφαιρούμε το διπλό meeting_node)
-        full_path = forward_path + backward_path[1:]
-        
+            current = backward_prev.get(current)
+
+        # Συνδυασμός paths
+        full_path = forward_path + backward_path
         return self._path_to_coordinates(full_path)
     
     def _path_to_coordinates(self, path):

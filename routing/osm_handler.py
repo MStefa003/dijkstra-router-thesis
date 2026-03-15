@@ -169,7 +169,15 @@ class OSMHandler:
                     continue
                 
                 # Έλεγχος αν είναι μονόδρομος
-                oneway = 'yes' if 'oneway' in element['tags'] and element['tags']['oneway'] == 'yes' else 'no'
+                # oneway=yes: μόνο προς τη φορά των κόμβων
+                # oneway=-1: μόνο ΑΝΤΙΘΕΤΑ της φοράς των κόμβων
+                oneway_tag = element['tags'].get('oneway', 'no')
+                if oneway_tag == 'yes':
+                    oneway = 'forward'
+                elif oneway_tag == '-1':
+                    oneway = 'reverse'
+                else:
+                    oneway = 'no'
                 
                 # Εξετάζουμε κάθε ζεύγος συνδεδεμένων κόμβων
                 nodes = element['nodes']
@@ -200,18 +208,27 @@ class OSMHandler:
                             realistic_time, road_info, from_coords, to_coords
                         )
                         
-                        # Προσθήκη ακμής στο γράφημα με επιπλέον μεταδεδομένα
+                        # Προσθήκη ακμών στο γράφημα βάσει κατεύθυνσης μονόδρομου
                         edge_data = (to_node, dist, time, road_info)
-                        self.dijkstra.graph[from_node].append(edge_data)
-                        
-                        # Αν δεν είναι μονόδρομος, προσθέτουμε ακμή και στην αντίθετη κατεύθυνση
-                        if oneway != 'yes':
-                            reverse_edge_data = (from_node, dist, time, road_info)
+                        reverse_edge_data = (from_node, dist, time, road_info)
+
+                        if oneway == 'forward':
+                            # Μόνο from→to
+                            self.dijkstra.graph[from_node].append(edge_data)
+                        elif oneway == 'reverse':
+                            # Μόνο to→from (αντίθετη φορά)
+                            self.dijkstra.graph[to_node].append(reverse_edge_data)
+                        else:
+                            # Αμφίδρομος δρόμος
+                            self.dijkstra.graph[from_node].append(edge_data)
                             self.dijkstra.graph[to_node].append(reverse_edge_data)
         
         print(f"Κατασκευάστηκε γράφημα με {len(self.dijkstra.nodes)} κόμβους και {len(self.dijkstra.graph)} συνδεδεμένους κόμβους")
         print(f"Επεξεργάστηκα {roads_processed} δρόμους")
-        
+
+        # Κατασκευή spatial index για γρήγορη αναζήτηση κοντινότερου κόμβου
+        self.dijkstra._build_spatial_index()
+
         # Επιστρέφουμε true αν καταφέραμε να φτιάξουμε ένα γράφημα με κόμβους
         return len(self.dijkstra.nodes) > 0 and len(self.dijkstra.graph) > 0
     
