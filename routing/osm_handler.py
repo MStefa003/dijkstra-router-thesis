@@ -29,7 +29,11 @@ class OSMHandler:
         # Δημιουργία Overpass API query για οδικό δίκτυο
         # Λαμβάνουμε όλους τους δρόμους (ways) εντός του bounding box
         # που έχουν το tag highway και το τύπος δρόμου είναι κατάλληλος για οχήματα
-        overpass_url = "https://overpass-api.de/api/interpreter"
+        overpass_mirrors = [
+            "https://overpass-api.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter",
+            "https://lz4.overpass-api.de/api/interpreter",
+        ]
         
         # Χειρισμός διαφορετικών τύπων δρόμων ανάλογα με την απόσταση
         distance = self.dijkstra.haversine(
@@ -78,35 +82,50 @@ class OSMHandler:
         """
         
         print(f"Λήψη δεδομένων με βελτιωμένες πληροφορίες (όρια ταχύτητας, τύπος δρόμου)...")
-        
-        try:
-            # Αποστολή του query στο Overpass API και λήψη των δεδομένων
-            response = requests.post(overpass_url, data={"data": overpass_query})
-            
-            if response.status_code != 200:
-                print(f"Σφάλμα κατά τη λήψη δεδομένων από το Overpass API: {response.status_code}")
-                print(response.text)
-                return False
-                
-            # Μετατροπή των δεδομένων από JSON σε Python objects
-            data = response.json()
-            
-            # Ο αριθμός των στοιχείων που πήραμε
-            elements = data.get("elements", [])
-            print(f"Ελήφθησαν {len(elements)} στοιχεία από το OSM")
-            
-            # Μηδενισμός του γραφήματος (για επανάληψη της διαδικασίας)
-            self.dijkstra.graph.clear()
-            self.dijkstra.nodes.clear()
-            
-            # Επεξεργασία των στοιχείων και κατασκευή του γραφήματος
-            return self._build_graph(elements)
-            
-        except Exception as e:
-            print(f"Σφάλμα κατά τη λήψη ή επεξεργασία του οδικού δικτύου: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
+
+        http_timeout = 90  # δευτερόλεπτα για HTTP request timeout
+
+        for mirror_index, overpass_url in enumerate(overpass_mirrors):
+            try:
+                print(f"Δοκιμή Overpass mirror {mirror_index + 1}/{len(overpass_mirrors)}: {overpass_url}")
+                response = requests.post(
+                    overpass_url,
+                    data={"data": overpass_query},
+                    timeout=http_timeout
+                )
+
+                if response.status_code != 200:
+                    print(f"Σφάλμα από Overpass mirror {mirror_index + 1}: HTTP {response.status_code}")
+                    print(response.text[:500])
+                    continue  # Δοκιμή επόμενου mirror
+
+                # Μετατροπή των δεδομένων από JSON σε Python objects
+                data = response.json()
+
+                # Ο αριθμός των στοιχείων που πήραμε
+                elements = data.get("elements", [])
+                print(f"Ελήφθησαν {len(elements)} στοιχεία από το OSM (mirror {mirror_index + 1})")
+
+                if len(elements) == 0:
+                    print(f"Mirror {mirror_index + 1} επέστρεψε κενά δεδομένα, δοκιμή επόμενου...")
+                    continue
+
+                # Μηδενισμός του γραφήματος (για επανάληψη της διαδικασίας)
+                self.dijkstra.graph.clear()
+                self.dijkstra.nodes.clear()
+
+                # Επεξεργασία των στοιχείων και κατασκευή του γραφήματος
+                return self._build_graph(elements)
+
+            except requests.exceptions.Timeout:
+                print(f"Timeout από Overpass mirror {mirror_index + 1}, δοκιμή επόμενου...")
+                continue
+            except Exception as e:
+                print(f"Σφάλμα από Overpass mirror {mirror_index + 1}: {e}")
+                continue
+
+        print("αποτυχια στη λήψη οδικού δικτύου από όλα τα mirrors!")
+        return False
     
     def _build_graph(self, elements):
         """

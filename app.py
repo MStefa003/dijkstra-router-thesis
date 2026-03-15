@@ -1080,12 +1080,13 @@ def route_with_traffic_visualization():
             start_coords, end_coords, route_type
         )
         calc_time = time.time() - start_time
-        
+
         if not geometry:
             return jsonify({
-                'error': 'Δεν κατέστη δυνατή η εύρεση διαδρομής'
-            }), 404
-        
+                'success': False,
+                'error': 'Δεν κατέστη δυνατή η εύρεση διαδρομής. Ο Overpass API ίσως είναι απασχολημένος — δοκιμάστε ξανά σε λίγα δευτερόλεπτα.'
+            }), 200
+
         # Δημιουργία traffic segments για visualization
         traffic_segments = []
         segment_length = max(2, len(geometry) // 15)  # Χωρίζουμε σε ~15 μεγαλύτερα segments

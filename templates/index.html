@@ -12,76 +12,119 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-
     <div class="toast-container"></div>
 
-    <!-- Full-screen map sits behind everything -->
+    <!-- Full-screen map -->
     <div id="map"></div>
 
-    <!-- Floating directions panel -->
+    <!-- Sidebar collapse tab (desktop only) -->
+    <button class="sidebar-tab" id="sidebarCollapseBtn" title="Απόκρυψη πλαισίου">
+        <i class="fas fa-chevron-left"></i>
+    </button>
+
     <aside class="sidebar" id="sidebar">
 
-        <div class="panel-brand">
-            <i class="fas fa-route"></i>
-            <span>Δρομολόγηση</span>
-        </div>
+        <!-- Direction inputs panel -->
+        <div class="dir-panel">
+            <div class="dir-header">
+                <button class="icon-btn" id="resetMapBtn" title="Νέα αναζήτηση">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
 
-        <form id="routeForm" autocomplete="off">
-            <div class="waypoints">
+                <form id="routeForm" class="dir-form" autocomplete="off">
+                    <!-- Origin -->
+                    <div class="dir-field-wrap">
+                        <div class="dir-field" id="originField">
+                            <span class="dir-indicator dot-origin"></span>
+                            <input type="text" id="startLocation" class="dir-input"
+                                   placeholder="Επιλογή αφετηρίας" autocomplete="off">
+                            <button type="button" class="clear-btn" id="clearStart">
+                                <i class="fas fa-times"></i>
+                            </button>
+                            <input type="hidden" id="startCoords">
+                        </div>
+                        <div class="ac-dropdown" id="startAC"></div>
+                    </div>
 
-                <!-- Left: visual connector (dot → line → dot) -->
-                <div class="wp-connector" aria-hidden="true">
-                    <div class="wp-dot wp-dot-a"></div>
-                    <div class="wp-line"></div>
-                    <div class="wp-dot wp-dot-b"></div>
-                </div>
-
-                <!-- Right: inputs -->
-                <div class="wp-inputs">
-                    <div class="wp-field">
-                        <input type="text" id="startLocation" class="loc-input"
-                               placeholder="Αφετηρία" autocomplete="off">
-                        <button type="button" id="useCurrentLocation" class="field-action"
-                                title="Τρέχουσα τοποθεσία">
-                            <i class="fas fa-location-arrow"></i>
+                    <!-- Connector + swap -->
+                    <div class="dir-connector">
+                        <div class="connector-line"></div>
+                        <button type="button" class="swap-btn" id="swapBtn"
+                                title="Εναλλαγή αφετηρίας / προορισμού">
+                            <i class="fas fa-up-down"></i>
                         </button>
-                        <input type="hidden" id="startCoords">
                     </div>
-                    <div class="wp-field">
-                        <input type="text" id="endLocation" class="loc-input"
-                               placeholder="Προορισμός" autocomplete="off">
-                        <input type="hidden" id="endCoords">
+
+                    <!-- Destination -->
+                    <div class="dir-field-wrap">
+                        <div class="dir-field" id="destField">
+                            <span class="dir-indicator pin-dest"></span>
+                            <input type="text" id="endLocation" class="dir-input"
+                                   placeholder="Επιλογή προορισμού" autocomplete="off">
+                            <button type="button" class="clear-btn" id="clearEnd">
+                                <i class="fas fa-times"></i>
+                            </button>
+                            <input type="hidden" id="endCoords">
+                        </div>
+                        <div class="ac-dropdown" id="endAC"></div>
                     </div>
-                </div>
+                </form>
+
+                <button class="icon-btn" id="useCurrentLocation" title="Τρέχουσα τοποθεσία">
+                    <i class="fas fa-location-arrow"></i>
+                </button>
             </div>
 
-            <button type="submit" class="route-btn">
-                <span id="submitBtnText">
-                    <i class="fas fa-directions"></i> Εύρεση Διαδρομής
-                </span>
-            </button>
-        </form>
+            <!-- Transport mode tabs -->
+            <div class="transport-tabs">
+                <button class="t-tab active" data-mode="driving" title="Αυτοκίνητο">
+                    <i class="fas fa-car"></i>
+                </button>
+                <button class="t-tab" data-mode="transit" title="Μέσα μεταφοράς">
+                    <i class="fas fa-bus"></i>
+                </button>
+                <button class="t-tab" data-mode="walking" title="Πεζή">
+                    <i class="fas fa-walking"></i>
+                </button>
+                <button class="t-tab" data-mode="cycling" title="Ποδήλατο">
+                    <i class="fas fa-bicycle"></i>
+                </button>
+            </div>
+        </div>
 
-        <!-- Route result (injected by JS) -->
+        <!-- Search button -->
+        <div class="search-action">
+            <button type="submit" form="routeForm" class="route-btn">
+                <span id="submitBtnText">Εύρεση Διαδρομής</span>
+            </button>
+        </div>
+
+        <!-- Empty state hint -->
+        <div class="empty-hint" id="emptyHint">
+            <i class="fas fa-map-location-dot"></i>
+            <p>Πληκτρολογήστε αφετηρία και προορισμό για να υπολογιστεί η βέλτιστη διαδρομή.</p>
+            <p class="empty-hint-tip">Μπορείτε επίσης να κάνετε κλικ στον χάρτη για να ορίσετε σημεία.</p>
+        </div>
+
+        <!-- Route summary (injected by JS) -->
         <div id="routeInfo" style="display:none;"></div>
+
+        <!-- Turn-by-turn (injected by JS) -->
         <div id="routeInstructions" style="display:none;"></div>
 
     </aside>
 
-    <!-- Floating action buttons (top-right over map) -->
+    <!-- FABs top-right -->
     <div class="map-fabs">
-        <button id="resetMapBtn" class="theme-toggle fab-btn" title="Επαναφορά (Esc)">
-            <i class="fas fa-redo-alt"></i>
-        </button>
-        <button id="themeToggle" class="theme-toggle fab-btn" title="Αλλαγή θέματος">
+        <button id="themeToggle" class="fab-btn theme-toggle" title="Αλλαγή θέματος">
             <i class="fas fa-moon"></i>
         </button>
-        <button id="toggleSidebar" class="theme-toggle fab-btn mob-only" title="Μενού">
+        <button id="toggleSidebar" class="fab-btn mob-only" title="Εμφάνιση/Απόκρυψη">
             <i class="fas fa-bars"></i>
         </button>
     </div>
 
-    <!-- SVG gradient for route polyline -->
+    <!-- SVG gradient for polyline -->
     <svg width="0" height="0" aria-hidden="true" style="position:absolute">
         <defs>
             <linearGradient id="route-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
