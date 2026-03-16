@@ -1,130 +1,162 @@
 import requests
 import math
+import os
+import pickle
+import time as _time
 from .traffic_manager import TrafficManager
+
+_CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '_osm_cache')
+os.makedirs(_CACHE_DIR, exist_ok=True)
 
 class OSMHandler:
     # Διαχείριση δεδομένων από το OpenStreetMap
-    
+
     def __init__(self, dijkstra):
         # αναφορά στην κλάση dijkstra
         self.dijkstra = dijkstra
         self.buffer = 0.5  # αυξημένο buffer για καλύτερη κάλυψη του οδικού δικτύου
         self.traffic_manager = TrafficManager()  # Διαχειριστής κίνησης
+        self._last_bbox = None  # bbox of currently loaded network
         
+    # ---------------------------------------------------------------
+    # Overpass mirrors — ordered by reliability
+    _OVERPASS_MIRRORS = [
+        "https://overpass-api.de/api/interpreter",
+        "https://lz4.overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://z.overpass-api.de/api/interpreter",
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    ]
+
+    def _bbox_cache_key(self, min_lat, min_lon, max_lat, max_lon):
+        """Κλειδί cache βάσει bounding box (στρογγυλοποίηση στα 2 δεκαδικά)."""
+        return f"{round(min_lat,2)}_{round(min_lon,2)}_{round(max_lat,2)}_{round(max_lon,2)}"
+
+    def _load_from_disk_cache(self, cache_key):
+        path = os.path.join(_CACHE_DIR, f"{cache_key}.pkl")
+        if not os.path.exists(path):
+            return None
+        # Ignore cache older than 24 h
+        if _time.time() - os.path.getmtime(path) > 86400:
+            os.remove(path)
+            return None
+        try:
+            with open(path, 'rb') as f:
+                return pickle.load(f)
+        except Exception:
+            return None
+
+    def _save_to_disk_cache(self, cache_key, elements):
+        path = os.path.join(_CACHE_DIR, f"{cache_key}.pkl")
+        try:
+            with open(path, 'wb') as f:
+                pickle.dump(elements, f)
+        except Exception as e:
+            print(f"Cache write error: {e}")
+
     def download_road_network(self, start_coords, end_coords):
         """
         Κατεβάζει τα δεδομένα του οδικού δικτύου από το OpenStreetMap για την
-        περιοχή γύρω από τις συντεταγμένες αρχής και τέλους
+        περιοχή γύρω από τις συντεταγμένες αρχής και τέλους.
+        Χρησιμοποιεί disk cache 24ωρης διάρκειας για αποφυγή επαναλαμβανόμενων λήψεων.
         """
-        # Προετοιμασία του bounding box
-        # Επέκταση της περιοχής γύρω από τα σημεία αρχής και τέλους (buffer σε μοίρες)
-        # Τυπικά, 0.1 μοίρες είναι περίπου 11χλμ στον ισημερινό
         min_lat = min(start_coords[1], end_coords[1]) - self.buffer
         max_lat = max(start_coords[1], end_coords[1]) + self.buffer
         min_lon = min(start_coords[0], end_coords[0]) - self.buffer
         max_lon = max(start_coords[0], end_coords[0]) + self.buffer
-        
-        print(f"Λήψη οδικού δικτύου για περιοχή: {min_lat},{min_lon},{max_lat},{max_lon}")
-        
-        # Δημιουργία Overpass API query για οδικό δίκτυο
-        # Λαμβάνουμε όλους τους δρόμους (ways) εντός του bounding box
-        # που έχουν το tag highway και το τύπος δρόμου είναι κατάλληλος για οχήματα
-        overpass_mirrors = [
-            "https://overpass-api.de/api/interpreter",
-            "https://overpass.kumi.systems/api/interpreter",
-            "https://lz4.overpass-api.de/api/interpreter",
-        ]
-        
-        # Χειρισμός διαφορετικών τύπων δρόμων ανάλογα με την απόσταση
+
+        bbox_str = f"{min_lat},{min_lon},{max_lat},{max_lon}"
+        print(f"Λήψη οδικού δικτύου για περιοχή: {bbox_str}")
+
+        # --- 1. Check if bbox is already loaded in memory ---
+        current_bbox = (round(min_lat,3), round(min_lon,3), round(max_lat,3), round(max_lon,3))
+        if self._last_bbox == current_bbox and len(self.dijkstra.nodes) > 0:
+            print("Οδικό δίκτυο ήδη φορτωμένο στη μνήμη για αυτή την περιοχή.")
+            return True
+
+        # --- 2. Check disk cache ---
+        cache_key = self._bbox_cache_key(min_lat, min_lon, max_lat, max_lon)
+        cached_elements = self._load_from_disk_cache(cache_key)
+        if cached_elements is not None:
+            print(f"Φόρτωση {len(cached_elements)} στοιχείων από disk cache...")
+            self.dijkstra.graph.clear()
+            self.dijkstra.nodes.clear()
+            result = self._build_graph(cached_elements)
+            if result:
+                self._last_bbox = current_bbox
+            return result
+
+        # --- 3. Determine road types based on distance ---
         distance = self.dijkstra.haversine(
             start_coords[0], start_coords[1],
             end_coords[0], end_coords[1]
         )
-        
-        # Βελτιωμένη επιλογή δρόμων για μεγάλες αποστάσεις στην Ελλάδα
-        # Για αποστάσεις >30km (όπως Αίγιο-Πάτρα), εστιάζουμε σε κύριους δρόμους
+
         if distance > 30:
-            # Μόνο κύριοι δρόμοι για μεγάλες αποστάσεις
-            road_types = (
-                "motorway|trunk|primary|secondary|"
-                "motorway_link|trunk_link|primary_link|secondary_link"
-            )
-            print(f"Μεγάλη απόσταση ({distance:.1f}km) - Χρήση μόνο κύριων δρόμων")
+            road_types = "motorway|trunk|primary|secondary|motorway_link|trunk_link|primary_link|secondary_link"
+            print(f"Μεγάλη απόσταση ({distance:.1f}km) - μόνο κύριοι δρόμοι")
         elif distance > 15:
-            # Μεσαίες αποστάσεις - περισσότεροι τύποι
-            road_types = (
-                "motorway|trunk|primary|secondary|tertiary|"
-                "motorway_link|trunk_link|primary_link|secondary_link|tertiary_link"
-            )
-            print(f"Μεσαία απόσταση ({distance:.1f}km) - Χρήση κύριων και δευτερευόντων δρόμων")
+            road_types = "motorway|trunk|primary|secondary|tertiary|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link"
+            print(f"Μεσαία απόσταση ({distance:.1f}km) - κύριοι + δευτερεύοντες")
         else:
-            # Μικρές αποστάσεις - όλοι οι τύποι
-            road_types = (
-                "motorway|trunk|primary|secondary|tertiary|unclassified|residential|"
-                "motorway_link|trunk_link|primary_link|secondary_link|tertiary_link|"
-                "living_street|service"
-            )
-            print(f"Μικρή απόσταση ({distance:.1f}km) - Χρήση όλων των τύπων δρόμων")
-        
-        max_nodes = 10000000  # Αύξηση ορίου για μεγάλες περιοχές
+            road_types = "motorway|trunk|primary|secondary|tertiary|unclassified|residential|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link|living_street|service"
+            print(f"Μικρή απόσταση ({distance:.1f}km) - όλοι οι τύποι δρόμων")
 
-        # Βελτιωμένο query με μεγαλύτερο timeout για μεγάλες περιοχές
-        timeout = 600 if distance > 30 else 300
-        
-        # Βελτιωμένο query που περιλαμβάνει όρια ταχύτητας και πρόσθετες πληροφορίες
-        overpass_query = f"""
-        [out:json][timeout:{timeout}][maxsize:2000000000];
-        (
-          way["highway"~"^({road_types})$"]({min_lat},{min_lon},{max_lat},{max_lon});
-        );
-        (._;>;);
-        out body;
-        """
-        
-        print(f"Λήψη δεδομένων με βελτιωμένες πληροφορίες (όρια ταχύτητας, τύπος δρόμου)...")
+        # --- 4. Build Overpass query ---
+        # Timeout 90s (matches HTTP timeout), maxsize 256 MB — small enough for servers to accept
+        overpass_query = (
+            f"[out:json][timeout:90][maxsize:268435456];"
+            f"(way[\"highway\"~\"^({road_types})$\"]({bbox_str}););"
+            f"(._;>;);out body qt;"
+        )
 
-        http_timeout = 90  # δευτερόλεπτα για HTTP request timeout
+        print("Λήψη δεδομένων από Overpass API...")
 
-        for mirror_index, overpass_url in enumerate(overpass_mirrors):
+        http_timeout = 100  # δευτερόλεπτα HTTP timeout
+
+        for i, url in enumerate(self._OVERPASS_MIRRORS):
             try:
-                print(f"Δοκιμή Overpass mirror {mirror_index + 1}/{len(overpass_mirrors)}: {overpass_url}")
+                print(f"Δοκιμή Overpass mirror {i + 1}/{len(self._OVERPASS_MIRRORS)}: {url}")
                 response = requests.post(
-                    overpass_url,
+                    url,
                     data={"data": overpass_query},
                     timeout=http_timeout
                 )
 
                 if response.status_code != 200:
-                    print(f"Σφάλμα από Overpass mirror {mirror_index + 1}: HTTP {response.status_code}")
-                    print(response.text[:500])
-                    continue  # Δοκιμή επόμενου mirror
-
-                # Μετατροπή των δεδομένων από JSON σε Python objects
-                data = response.json()
-
-                # Ο αριθμός των στοιχείων που πήραμε
-                elements = data.get("elements", [])
-                print(f"Ελήφθησαν {len(elements)} στοιχεία από το OSM (mirror {mirror_index + 1})")
-
-                if len(elements) == 0:
-                    print(f"Mirror {mirror_index + 1} επέστρεψε κενά δεδομένα, δοκιμή επόμενου...")
+                    print(f"Mirror {i + 1}: HTTP {response.status_code} — δοκιμή επόμενου")
+                    print(response.text[:200])
+                    _time.sleep(1)
                     continue
 
-                # Μηδενισμός του γραφήματος (για επανάληψη της διαδικασίας)
+                data = response.json()
+                elements = data.get("elements", [])
+                print(f"Ελήφθησαν {len(elements)} στοιχεία (mirror {i + 1})")
+
+                if len(elements) == 0:
+                    print(f"Mirror {i + 1}: κενά δεδομένα — δοκιμή επόμενου")
+                    continue
+
+                # Save to disk cache before building graph
+                self._save_to_disk_cache(cache_key, elements)
+
                 self.dijkstra.graph.clear()
                 self.dijkstra.nodes.clear()
-
-                # Επεξεργασία των στοιχείων και κατασκευή του γραφήματος
-                return self._build_graph(elements)
+                result = self._build_graph(elements)
+                if result:
+                    self._last_bbox = current_bbox
+                return result
 
             except requests.exceptions.Timeout:
-                print(f"Timeout από Overpass mirror {mirror_index + 1}, δοκιμή επόμενου...")
+                print(f"Mirror {i + 1}: timeout — δοκιμή επόμενου")
+                _time.sleep(1)
                 continue
             except Exception as e:
-                print(f"Σφάλμα από Overpass mirror {mirror_index + 1}: {e}")
+                print(f"Mirror {i + 1}: σφάλμα — {e}")
+                _time.sleep(1)
                 continue
 
-        print("αποτυχια στη λήψη οδικού δικτύου από όλα τα mirrors!")
+        print("Αποτυχία λήψης οδικού δικτύου από όλα τα mirrors!")
         return False
     
     def _build_graph(self, elements):

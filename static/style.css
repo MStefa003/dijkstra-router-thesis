@@ -123,7 +123,8 @@ body.sidebar-collapsed .sidebar-tab i { transform: rotate(180deg); }
 .dir-header {
     display: flex;
     align-items: flex-start;
-    padding: 10px 4px 6px;
+    padding: 10px 6px 6px;
+    gap: 2px;
 }
 
 /* Icon buttons */
@@ -244,9 +245,9 @@ body.sidebar-collapsed .sidebar-tab i { transform: rotate(180deg); }
 .dir-connector {
     display: flex;
     align-items: center;
-    height: 18px;
-    padding-left: 16px;
-    margin: 3px 0;
+    height: 16px;
+    padding-left: 17px;
+    margin: 2px 0;
 }
 
 .connector-line {
@@ -300,8 +301,8 @@ body.sidebar-collapsed .sidebar-tab i { transform: rotate(180deg); }
 .ac-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
+    gap: 10px;
+    padding: 9px 12px;
     cursor: pointer;
     transition: background .1s;
     border-bottom: 1px solid var(--border);
@@ -311,15 +312,15 @@ body.sidebar-collapsed .sidebar-tab i { transform: rotate(180deg); }
 .ac-item:hover { background: var(--bg); }
 
 .ac-icon {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     border-radius: 50%;
     background: var(--bg);
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--text-2);
-    font-size: 13px;
+    font-size: 12px;
     flex-shrink: 0;
 }
 
@@ -356,16 +357,16 @@ body.sidebar-collapsed .sidebar-tab i { transform: rotate(180deg); }
     align-items: stretch;
     border-top: 1px solid var(--border);
     border-bottom: 1px solid var(--border);
-    margin-top: 4px;
+    margin-top: 6px;
 }
 
 .t-tab {
     flex: 1;
-    height: 44px;
+    height: 42px;
     border: none;
     background: transparent;
     color: var(--text-2);
-    font-size: 17px;
+    font-size: 16px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -380,7 +381,7 @@ body.sidebar-collapsed .sidebar-tab i { transform: rotate(180deg); }
 .t-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
 
 /* --- Search action ---------------------------------------- */
-.search-action { padding: 10px 16px 8px; }
+.search-action { padding: 8px 14px 12px; }
 
 .route-btn {
     display: block;
@@ -441,14 +442,22 @@ body.sidebar-collapsed .sidebar-tab i { transform: rotate(180deg); }
 }
 
 .route-summary {
-    padding: 16px 16px 12px;
+    padding: 14px 16px 12px;
 }
 
 .route-time-row {
     display: flex;
     align-items: baseline;
-    gap: 10px;
+    gap: 8px;
     flex-wrap: wrap;
+}
+
+.route-time-row .route-dist::before {
+    content: '·';
+    margin-right: 8px;
+    color: var(--border);
+    font-size: 16px;
+    vertical-align: middle;
 }
 
 .route-time {
@@ -564,8 +573,8 @@ body.sidebar-collapsed .sidebar-tab i { transform: rotate(180deg); }
 .step-item {
     display: flex;
     align-items: flex-start;
-    gap: 14px;
-    padding: 10px 16px;
+    gap: 12px;
+    padding: 9px 16px;
     border-bottom: 1px solid var(--border);
     cursor: pointer;
     transition: background .1s;
@@ -575,15 +584,14 @@ body.sidebar-collapsed .sidebar-tab i { transform: rotate(180deg); }
 .step-item:last-child { border-bottom: none; }
 
 .step-icon {
-    width: 32px;
-    height: 32px;
+    width: 28px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--text-2);
-    font-size: 15px;
-    margin-top: 1px;
+    font-size: 14px;
+    padding-top: 2px;
 }
 
 .step-content { flex: 1; min-width: 0; }
@@ -594,11 +602,17 @@ body.sidebar-collapsed .sidebar-tab i { transform: rotate(180deg); }
     line-height: 1.35;
 }
 
-.step-meta { display: flex; gap: 8px; margin-top: 3px; }
+.step-meta { display: flex; align-items: center; gap: 4px; margin-top: 3px; }
 
 .step-dist, .step-dur {
     font-size: 12px;
     color: var(--text-2);
+}
+
+.step-sep {
+    font-size: 10px;
+    color: var(--border);
+    line-height: 1;
 }
 
 /* --- Map FABs --------------------------------------------- */

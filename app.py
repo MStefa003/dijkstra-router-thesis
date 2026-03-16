@@ -188,17 +188,22 @@ def get_route_new():
         else:
             geometry, distance, duration, steps = result
             
+        is_approximate = False
         if not geometry:
             print("Δε βρέθηκε διαδρομή με Dijkstra, δοκιμή με μεγαλύτερο buffer")
-            
+
             # Αν δεν βρέθηκε διαδρομή, προσπαθούμε ξανά με μεγαλύτερο buffer
+            original_buffer = route_manager.osm_handler.buffer
             route_manager.osm_handler.buffer = 0.5
-            
+
             if route_manager.osm_handler.download_road_network(start_coords, end_coords):
                 result2 = route_manager.find_route(start_coords, end_coords, route_type)
                 if result2 and result2[0] is not None:
                     geometry, distance, duration, steps = result2
-            
+                    is_approximate = True
+
+            route_manager.osm_handler.buffer = original_buffer  # always restore
+
             if not geometry:
                 return jsonify({
                     'success': False,
@@ -208,19 +213,18 @@ def get_route_new():
 
         # μορφοποίηση των βημάτων
         formatted_steps = route_manager.format_steps(steps)
-        distance_km = round(distance / 1000, 2)
-        
+        distance_km = round(distance / 1000, 2)  # distance από route_manager είναι σε μέτρα
+
         # δημιουργία απάντησης
         response = {
             'success': True,
             'route': {
                 'geometry': geometry,
-                'distance': distance_km,
-                'duration': round(duration) if duration else 0,
-                'durationText': route_manager.format_duration(duration) if duration else '0 min',
+                'distance_km': distance_km,
+                'duration_seconds': round(float(duration)) if duration else 0,
                 'steps': formatted_steps
             },
-            'isApproximate': False,
+            'isApproximate': is_approximate,
             'message': 'Επιτυχής εύρεση διαδρομής'
         }
     

@@ -457,27 +457,33 @@ function displayRouteInfo(distance, durationSec, isApprox) {
     const routeInfoDiv = document.getElementById('routeInfo');
     if (!routeInfoDiv) return;
 
-    const hours   = Math.floor(durationSec / 3600);
-    const minutes = Math.floor((durationSec % 3600) / 60);
-    const timeStr = hours > 0 ? `${hours} ώρ. ${minutes} λεπ.` : `${minutes} λεπτά`;
+    const sec  = Math.max(0, Math.round(parseFloat(durationSec) || 0));
+    const hours   = Math.floor(sec / 3600);
+    const minutes = Math.floor((sec % 3600) / 60);
+    let timeStr;
+    if (sec === 0)       timeStr = '—';
+    else if (hours > 0)  timeStr = `${hours} ώρ. ${minutes} λεπ.`;
+    else if (minutes > 0) timeStr = `${minutes} λεπτά`;
+    else                 timeStr = '<1 λεπτό';
 
-    const distStr = distance ? `${parseFloat(distance).toFixed(1)} χλμ` : '';
+    const km = parseFloat(distance) || 0;
+    const distStr = km > 0 ? (km >= 1 ? `${km.toFixed(1)} χλμ` : `${Math.round(km * 1000)} μ.`) : '';
 
     routeInfoDiv.innerHTML = `
         <div class="route-summary fade-in">
             <div class="route-time-row">
                 <span class="route-time">${timeStr}</span>
-                <span class="route-dist">${distStr}</span>
+                ${distStr ? `<span class="route-dist">${distStr}</span>` : ''}
             </div>
             <div class="traffic-badge free">
                 <span class="badge-dot"></span> Κανονική κίνηση
             </div>
-            ${isApprox ? `<div class="route-warning"><i class="fas fa-exclamation-triangle"></i> Προσεγγιστική διαδρομή</div>` : ''}
+            ${isApprox ? '<div class="route-warning"><i class="fas fa-exclamation-triangle"></i> Προσεγγιστική διαδρομή</div>' : ''}
             <div class="route-action-bar">
-                <button class="btn-start" onclick="showToast('Λειτουργία πλοήγησης σύντομα διαθέσιμη!', \'info\')">
+                <button class="btn-start" onclick="showToast('Λειτουργία πλοήγησης σύντομα διαθέσιμη!', 'info')">
                     <i class="fas fa-location-arrow"></i> Εκκίνηση
                 </button>
-                <button class="btn-icon" title="Κοινοποίηση" onclick="showToast('Κοινοποίηση σύντομα!', \'info\')">
+                <button class="btn-icon" title="Κοινοποίηση" onclick="showToast('Κοινοποίηση σύντομα!', 'info')">
                     <i class="fas fa-share-alt"></i>
                 </button>
             </div>
@@ -537,7 +543,7 @@ function showRouteInstructions(steps) {
                 <div class="step-icon"><i class="fas ${icon}"></i></div>
                 <div class="step-content">
                     <div class="step-instruction">${s.instruction}</div>
-                    ${(dist || dur) ? `<div class="step-meta">${dist ? `<span class="step-dist">${dist}</span>` : ''}${dur ? `<span class="step-dur">${dur}</span>` : ''}</div>` : ''}
+                    ${(dist || dur) ? `<div class="step-meta">${dist ? `<span class="step-dist">${dist}</span>` : ''}${dist && dur ? '<span class="step-sep">·</span>' : ''}${dur ? `<span class="step-dur">${dur}</span>` : ''}</div>` : ''}
                 </div>
             </div>`;
     }).join('');
