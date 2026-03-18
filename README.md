@@ -91,10 +91,9 @@ templates/
 
 ## Author
 
-**Name:** [Your Name]
-**Department:** [Department]
-**University:** [University]
-**Supervisor:** [Professor Name]
+**Name:** Marios Nikolaos Stefanidis
+**Degree:** BSc Computer Science (First Class Honours)
+**University:** University of East London
 
 ## License
 
