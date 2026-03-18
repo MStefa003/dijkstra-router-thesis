@@ -1,216 +1,101 @@
-# 🚗 Advanced Routing Application - Thesis Project
+# Dijkstra Router — Thesis Project
 
-## 📋 Project Description
+A web-based routing application developed as a thesis project on the implementation and analysis of Dijkstra's algorithm for optimal route finding. The application extends beyond the core algorithm to include A\*, bidirectional search, live traffic integration, and a Google Maps-style interface.
 
-This application was developed as a **thesis project** with the theme **"Implementation of Dijkstra Algorithm for Optimal Route Finding"**.
+## Features
 
-The application evolved from a simple Dijkstra algorithm implementation to a **complete routing system** with advanced features that compete with commercial applications like Google Maps.
+**Routing algorithms**
+- Dijkstra — classic implementation, baseline for comparison
+- A\* — with Manhattan, Euclidean, and adaptive heuristics
+- Bidirectional Dijkstra — roughly 2× faster on long routes
+- Automatic algorithm selection based on route characteristics
 
-## 🎯 Thesis Objectives
+**Traffic**
+- Live traffic data from TomTom, HERE, MapBox, and Google Maps APIs
+- Traffic-colored route segments (free flow → heavy congestion)
+- Rush hour multipliers and traffic light estimation for urban areas
+- Real-time ETA updates via WebSocket
 
-- **Main Goal**: Implementation and analysis of Dijkstra algorithm
-- **Extension**: Comparison with advanced algorithms (A*, Bidirectional Search)
-- **Practical Application**: Development of real-world web application
-- **Innovation**: Integration of live traffic data and real-time visualization
+**Interface**
+- Leaflet.js map with CARTO tile layers (light and dark)
+- Sidebar with autocomplete location search (Nominatim/OSM)
+- Turn-by-turn directions with distance and duration per step
+- Dark mode, responsive layout, mobile bottom-sheet
 
-## 🚀 Features
+## Tech Stack
 
-### 🧠 Routing Algorithms
-- **Dijkstra Algorithm**: Classic implementation for accurate results
-- **A* Algorithm**: With heuristics (Manhattan, Euclidean, Adaptive)
-- **Bidirectional Dijkstra**: For long distances (2x faster)
-- **Intelligent Algorithm Selection**: Automatic selection of optimal algorithm
+**Backend:** Python 3, Flask, Flask-SocketIO
+**Frontend:** HTML/CSS/JavaScript, Leaflet.js
+**Data:** OpenStreetMap (Overpass API), OSM road network cached as pickled graphs
+**Traffic APIs:** TomTom, HERE, MapBox, Google Maps (optional)
 
-### 📊 Live Traffic Integration
-- **Multi-Source APIs**: HERE, MapBox, TomTom, Google Maps
-- **Real-time Traffic Data**: Live delays and traffic conditions
-- **Traffic Light Estimation**: Traffic light estimation in urban areas
-- **Rush Hour Detection**: Peak hours recognition
+## Setup
 
-### 🎨 Advanced Visualization
-- **Traffic-Colored Routes**: Colored routes based on traffic
-- **Interactive Legend**: Color guide explanation
-- **Real-time Updates**: Live ETA and condition updates
-- **WebSocket Support**: Real-time communication
+### 1. Install dependencies
 
-## 🛠️ Installation & Setup
-
-### Prerequisites
-- Python 3.8+
-- pip (Python package manager)
-
-### 1. Clone the Repository
-```bash
-git clone https://github.com/your-username/routing-app
-cd routing-app
-```
-
-### 2. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Setup API Keys
-```bash
-# Copy the example environment file
-cp .env.example .env
+### 2. Configure API keys
 
-# Edit .env and add your API keys
-# You can use any text editor
-notepad .env  # Windows
-nano .env     # Linux/Mac
+```bash
+cp .env.example .env
 ```
 
-### 4. Get Required API Keys
+Edit `.env` and fill in your keys. Only `TOMTOM_API_KEY` is required for live traffic. The app works without any traffic keys but will fall back to simulated traffic data.
 
-#### Required APIs:
-- **OpenRouteService API**: https://openrouteservice.org/ (Free)
-  - Used for basic routing and map data
-  - Sign up and get your `ORS_API_KEY`
+### 3. Run
 
-- **TomTom Traffic API**: https://developer.tomtom.com/ (Free tier available)
-  - Used for live traffic data and enhanced routing
-  - Sign up and get your `TOMTOM_API_KEY`
-
-#### Optional (for additional traffic data):
-- **HERE Traffic API**: https://developer.here.com/ (Free tier)
-- **MapBox**: https://www.mapbox.com/ (Good free tier)
-
-### 5. Run the Application
 ```bash
 python app.py
 ```
 
-### 6. Open in Browser
-```
-http://localhost:5000
-```
+Open `http://localhost:5000`.
 
-## 📊 Performance Results
+## API Keys
 
-### Algorithm Comparison
-- **A* vs Dijkstra**: 5-10x faster for long distances
-- **Bidirectional**: 2x faster for very long routes
-- **Intelligent Selection**: Optimal performance for each scenario
+| Key | Provider | Required |
+|-----|----------|----------|
+| `TOMTOM_API_KEY` | [developer.tomtom.com](https://developer.tomtom.com/) | For live traffic |
+| `HERE_API_KEY` | [developer.here.com](https://developer.here.com/) | Optional |
+| `MAPBOX_ACCESS_TOKEN` | [mapbox.com](https://www.mapbox.com/) | Optional |
+| `GOOGLE_MAPS_API_KEY` | [console.cloud.google.com](https://console.cloud.google.com/) | Optional |
 
-### Time Accuracy
-- **Live Traffic**: Real traffic data
-- **Traffic Lights**: Estimation of 2-3 lights/km in urban areas
-- **Rush Hour**: Multipliers up to 2.5x during peak hours
-
-## 🏗️ Architecture
+## Project Structure
 
 ```
-├── app.py                     # Flask web server
-├── routing/
-│   ├── dijkstra.py           # Main Dijkstra implementation
-│   ├── astar_dijkstra.py     # A* algorithm implementation
-│   ├── route_manager.py      # Route coordination
-│   ├── osm_handler.py        # OpenStreetMap data processing
-│   ├── live_traffic_manager.py # Live traffic integration
-│   └── realtime_manager.py   # WebSocket real-time features
-├── static/
-│   ├── script.js            # Frontend JavaScript
-│   └── style.css            # Responsive CSS styling
-└── templates/
-    └── index.html           # Main web interface
+app.py                          # Flask server, route endpoints, SocketIO
+routing/
+    dijkstra.py                 # Dijkstra + bidirectional implementation
+    astar_dijkstra.py           # A* with multiple heuristics
+    osm_handler.py              # OSM graph loading and caching
+    route_manager.py            # Algorithm selection and coordination
+    live_traffic_manager.py     # Multi-source traffic data integration
+    traffic_manager.py          # Traffic state and caching
+    realtime_manager.py         # WebSocket real-time updates
+    osrm_helper.py              # OSRM fallback helper
+static/
+    script.js                   # Map, autocomplete, route rendering
+    style.css                   # Responsive UI, dark mode
+templates/
+    index.html                  # Main interface
+    realtime_demo.html          # WebSocket demo page
 ```
 
-## 🔒 Security Notes
+## Notes
 
-- **Never commit API keys** to version control
-- The `.env` file is automatically ignored by Git
-- Use the `.env.example` template for setup
-- API keys are loaded securely using environment variables
+- OSM graph data is cached under `_osm_cache/` (excluded from version control). The first request for a new area downloads and caches the road network automatically.
+- The app works without any API keys — traffic visualization will use simulated data.
+- `SECRET_KEY` in `.env` should be changed to a random string for any non-local deployment.
 
-## 🛠️ Technologies
+## Author
 
-### Backend
-- **Python 3.x** - Core development language
-- **Flask** - Web framework
-- **Flask-SocketIO** - Real-time communication
-- **Requests** - API integration
+**Name:** [Your Name]
+**Department:** [Department]
+**University:** [University]
+**Supervisor:** [Professor Name]
 
-### Frontend
-- **HTML5/CSS3** - Modern web standards
-- **JavaScript ES6+** - Interactive functionality
-- **Leaflet.js** - Interactive maps
-- **Bootstrap 5** - Responsive design
+## License
 
-### APIs & Data
-- **OpenStreetMap** - Road network data
-- **HERE Traffic API** - Live traffic data
-- **MapBox API** - Traffic and routing data
-- **TomTom API** - Traffic flow information
-
-## 🎓 Academic Contribution
-
-This project contributes to the academic community with:
-
-1. **Practical Implementation**: Complete code for routing algorithms
-2. **Performance Analysis**: Comparative analysis of algorithms
-3. **Real-world Application**: Application on real data
-4. **Open Source**: Available for educational purposes
-
-## 👨‍💻 Author
-
-**Student Name**: [Your Name]  
-**Department**: [Computer Science/Computer Engineering Department]  
-**University**: [University Name]  
-**Year**: 2024
-
-### 📱 Contact
-- **LinkedIn**: [linkedin.com/in/your-profile](https://linkedin.com/in/your-profile)
-- **GitHub**: [github.com/your-username](https://github.com/your-username)
-- **Email**: your.email@example.com
-
-## 📄 License
-
-This project is available under the MIT License for educational purposes.
-
-## 🙏 Acknowledgments
-
-- **Supervising Professor**: [Professor Name]
-- **OpenStreetMap Community**: For road network data
-- **Traffic API Providers**: HERE, MapBox, TomTom
-- **Open Source Community**: For libraries and tools
-
----
-
-*This application was developed as part of a thesis project and serves as an example of applying theoretical algorithm knowledge to real-world problems.*
-
-## 🚀 GitHub Upload Instructions
-
-### Ready to Upload to GitHub:
-1. **Initialize Git repository:**
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit: Advanced Routing Application - Thesis Project"
-   ```
-
-2. **Create GitHub repository** and push:
-   ```bash
-   git remote add origin https://github.com/your-username/routing-app.git
-   git branch -M main
-   git push -u origin main
-   ```
-
-### What Gets Uploaded:
-- ✅ **All source code** (app.py, routing/, static/, templates/)
-- ✅ **Configuration templates** (.env.example, .gitignore)
-- ✅ **Documentation** (README.md, requirements.txt)
-- ❌ **Your API keys** (.env file is automatically excluded)
-
-## 🚨 Important Security Notice
-
-**NEVER commit your `.env` file to GitHub!** It contains sensitive API keys. The `.gitignore` file is configured to prevent this, but always double-check before pushing to GitHub.
-
-### Required API Keys for Users:
-- **ORS_API_KEY**: OpenRouteService API (Free at https://openrouteservice.org/)
-- **TOMTOM_API_KEY**: TomTom Traffic API (Free tier at https://developer.tomtom.com/)
-
-If you accidentally commit API keys:
-1. Immediately revoke/regenerate the keys
-2. Remove them from Git history
-3. Update your `.env` file with new keys
+MIT

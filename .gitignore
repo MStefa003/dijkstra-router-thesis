@@ -73,6 +73,7 @@ credentials.json
 # Cache files
 .cache/
 .pytest_cache/
+_osm_cache/
 
 # Coverage reports
 htmlcov/

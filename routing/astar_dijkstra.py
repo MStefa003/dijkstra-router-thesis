@@ -1,15 +1,18 @@
 import heapq
+import logging
 import math
 import time
 from typing import Dict, List, Tuple, Optional, Set
 from collections import defaultdict
+
+logger = logging.getLogger(__name__)
 
 class AStarDijkstra:
     """
     Advanced pathfinding με A* και βελτιωμένο Dijkstra
     Συνδυάζει την ακρίβεια του Dijkstra με την ταχύτητα του A*
     """
-    
+
     def __init__(self):
         self.nodes = {}  # node_id -> (lat, lon)
         self.graph = defaultdict(list)  # adjacency list
@@ -22,20 +25,20 @@ class AStarDijkstra:
             'nodes_explored_astar': 0,
             'nodes_explored_dijkstra': 0
         }
-        
+
     def haversine(self, lon1: float, lat1: float, lon2: float, lat2: float) -> float:
         """Υπολογισμός απόστασης Haversine σε χιλιόμετρα"""
         R = 6371  # Ακτίνα Γης σε km
-        
+
         lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
         dlat = lat2 - lat1
         dlon = lon2 - lon1
-        
+
         a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
         c = 2 * math.asin(math.sqrt(a))
-        
+
         return R * c
-    
+
     # Μέγιστη ταχύτητα στο οδικό δίκτυο (αυτοκινητόδρομος) — για αποδεκτό heuristic
     _MAX_SPEED_KMH = 130.0
 
@@ -80,18 +83,18 @@ class AStarDijkstra:
         if dist_km < distance_threshold:
             return (self._dist_km_manhattan(node1, node2) / self._MAX_SPEED_KMH) * 3600.0
         return (dist_km / self._MAX_SPEED_KMH) * 3600.0
-    
+
     def a_star_search(self, start: int, end: int, heuristic_type: str = 'adaptive') -> Optional[Tuple]:
         """
         A* αλγόριθμος με επιλογή heuristic
-        
+
         Args:
             start: Κόμβος αφετηρίας
-            end: Κόμβος προορισμού  
+            end: Κόμβος προορισμού
             heuristic_type: 'manhattan', 'euclidean', 'adaptive'
         """
         start_time = time.time()
-        
+
         # Επιλογή heuristic function
         if heuristic_type == 'manhattan':
             heuristic = self.manhattan_distance
@@ -99,89 +102,86 @@ class AStarDijkstra:
             heuristic = self.euclidean_heuristic
         else:  # adaptive
             heuristic = self.adaptive_heuristic
-        
+
         # A* data structures
         open_set = [(0, start)]  # (f_score, node)
         came_from = {}
         g_score = {start: 0}  # Κόστος από start
         f_score = {start: heuristic(start, end)}  # g + h
-        
-        open_set_hash = {start}  # Για γρήγορο lookup
+
         closed_set = set()
         nodes_explored = 0
-        
-        print(f"🧠 A* search: {start} → {end} (heuristic: {heuristic_type})")
-        
+
+        logger.debug("A* search: %s -> %s (heuristic: %s)", start, end, heuristic_type)
+
         while open_set:
             current_f, current = heapq.heappop(open_set)
-            open_set_hash.discard(current)
-            
+
             if current == end:
                 # Βρήκαμε τον προορισμό!
                 search_time = time.time() - start_time
                 self._update_astar_stats(search_time, nodes_explored)
-                
-                print(f"✅ A* completed: {nodes_explored} nodes, {search_time:.3f}s")
+                logger.debug("A* completed: %d nodes, %.3fs", nodes_explored, search_time)
                 return self._reconstruct_astar_path(came_from, start, end)
-            
+
+            if current in closed_set:
+                continue
+
             closed_set.add(current)
             nodes_explored += 1
-            
+
             # Όριο για αποφυγή infinite loops
             if nodes_explored > 100000:
-                print("⚠️ A* reached node limit")
+                logger.warning("A* reached node limit after %d nodes", nodes_explored)
                 break
-            
+
             # Εξερεύνηση γειτόνων
             for edge_data in self.graph.get(current, []):
                 if len(edge_data) >= 3:
                     neighbor, distance, time_cost = edge_data[:3]
                 else:
                     continue
-                
+
                 if neighbor in closed_set:
                     continue
-                
+
                 # Υπολογισμός g_score για αυτή τη διαδρομή
                 tentative_g = g_score[current] + time_cost  # Χρησιμοποιούμε χρόνο ως κόστος
-                
+
                 if neighbor not in g_score:
                     g_score[neighbor] = float('inf')
-                
+
                 if tentative_g < g_score[neighbor]:
-                    # Βρήκαμε καλύτερη διαδρομή
+                    # Βρήκαμε καλύτερη διαδρομή — push always (lazy deletion via closed_set on pop)
                     came_from[neighbor] = current
                     g_score[neighbor] = tentative_g
                     f_score[neighbor] = tentative_g + heuristic(neighbor, end)
-                    
-                    if neighbor not in open_set_hash:
-                        heapq.heappush(open_set, (f_score[neighbor], neighbor))
-                        open_set_hash.add(neighbor)
-        
-        print("❌ A* failed to find path")
+                    heapq.heappush(open_set, (f_score[neighbor], neighbor))
+
+        logger.warning("A* failed to find path from %s to %s", start, end)
         return None
-    
+
     def compare_algorithms(self, start: int, end: int) -> Dict:
         """Σύγκριση A* vs Dijkstra για benchmark"""
-        print(f"\n🏁 Algorithm Comparison: {start} → {end}")
-        
+        logger.debug("Algorithm Comparison: %s -> %s", start, end)
+
         results = {
             'start': start,
             'end': end,
             'algorithms': {}
         }
-        
+
         # Test A* με διαφορετικά heuristics
         for heuristic in ['manhattan', 'euclidean', 'adaptive']:
-            print(f"\n🧠 Testing A* with {heuristic} heuristic...")
+            logger.debug("Testing A* with %s heuristic", heuristic)
             start_time = time.time()
-            
+
             result = self.a_star_search(start, end, heuristic)
-            
+
             if result:
                 coords, total_dist, total_time, instructions = result
                 search_time = time.time() - start_time
-                
+
                 results['algorithms'][f'astar_{heuristic}'] = {
                     'success': True,
                     'search_time': search_time,
@@ -196,9 +196,9 @@ class AStarDijkstra:
                     'search_time': time.time() - start_time,
                     'heuristic': heuristic
                 }
-        
+
         return results
-    
+
     def _get_direction(self, lat1: float, lon1: float, lat2: float, lon2: float) -> str:
         """Υπολογισμός κατεύθυνσης κίνησης (8 κατευθύνσεις)"""
         angle = math.atan2(lon2 - lon1, lat2 - lat1) * 180.0 / math.pi
@@ -260,42 +260,42 @@ class AStarDijkstra:
                     })
 
         return coords, total_distance, total_time, instructions
-    
+
     def _update_astar_stats(self, search_time: float, nodes_explored: int):
         """Ενημέρωση στατιστικών A*"""
         self.performance_stats['total_searches'] += 1
         self.performance_stats['astar_searches'] += 1
         self.performance_stats['nodes_explored_astar'] += nodes_explored
-        
+
         # Υπολογισμός μέσου όρου
         current_avg = self.performance_stats['avg_astar_time']
         total_astar = self.performance_stats['astar_searches']
-        
+
         new_avg = ((current_avg * (total_astar - 1)) + search_time) / total_astar
         self.performance_stats['avg_astar_time'] = new_avg
-    
+
     def get_algorithm_stats(self) -> Dict:
         """Επιστροφή στατιστικών απόδοσης αλγορίθμων"""
         stats = self.performance_stats.copy()
-        
+
         if stats['astar_searches'] > 0:
             stats['avg_nodes_per_astar'] = stats['nodes_explored_astar'] / stats['astar_searches']
         else:
             stats['avg_nodes_per_astar'] = 0
-            
+
         if stats['dijkstra_searches'] > 0:
             stats['avg_nodes_per_dijkstra'] = stats['nodes_explored_dijkstra'] / stats['dijkstra_searches']
         else:
             stats['avg_nodes_per_dijkstra'] = 0
-        
+
         # Υπολογισμός speedup
         if stats['avg_dijkstra_time'] > 0 and stats['avg_astar_time'] > 0:
             stats['astar_speedup'] = stats['avg_dijkstra_time'] / stats['avg_astar_time']
         else:
             stats['astar_speedup'] = 0
-            
+
         return stats
-    
+
     def choose_best_algorithm(self, start: int, end: int) -> str:
         """
         Επιλογή αλγορίθμου A* βάσει χαρακτηριστικών.
