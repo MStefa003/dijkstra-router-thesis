@@ -373,7 +373,8 @@ async function calculateRoute() {
     document.getElementById('routeInfo').style.display = 'none';
     document.getElementById('routeInstructions').style.display = 'none';
 
-    const routeBody = JSON.stringify({ start: startCoords, end: endCoords, type: 'driving' });
+    const activeMode = document.querySelector('.t-tab.active')?.dataset.mode || 'driving';
+    const routeBody = JSON.stringify({ start: startCoords, end: endCoords, type: activeMode });
 
     async function postRoute(url) {
         const r = await fetch(url, {

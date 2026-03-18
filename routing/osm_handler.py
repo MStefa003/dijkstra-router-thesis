@@ -17,6 +17,7 @@ class OSMHandler:
         self.buffer = 0.5  # αυξημένο buffer για καλύτερη κάλυψη του οδικού δικτύου
         self.traffic_manager = TrafficManager()  # Διαχειριστής κίνησης
         self._last_bbox = None  # bbox of currently loaded network
+        self._last_mode = None  # transport mode of currently loaded network
         
     # ---------------------------------------------------------------
     # Overpass mirrors — ordered by reliability
@@ -28,9 +29,9 @@ class OSMHandler:
         "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
     ]
 
-    def _bbox_cache_key(self, min_lat, min_lon, max_lat, max_lon):
-        """Κλειδί cache βάσει bounding box (στρογγυλοποίηση στα 2 δεκαδικά)."""
-        return f"{round(min_lat,2)}_{round(min_lon,2)}_{round(max_lat,2)}_{round(max_lon,2)}"
+    def _bbox_cache_key(self, min_lat, min_lon, max_lat, max_lon, mode='driving'):
+        """Κλειδί cache βάσει bounding box και mode (στρογγυλοποίηση στα 2 δεκαδικά)."""
+        return f"{round(min_lat,2)}_{round(min_lon,2)}_{round(max_lat,2)}_{round(max_lon,2)}_{mode}"
 
     def _load_from_disk_cache(self, cache_key):
         path = os.path.join(_CACHE_DIR, f"{cache_key}.pkl")
@@ -54,52 +55,81 @@ class OSMHandler:
         except Exception as e:
             print(f"Cache write error: {e}")
 
-    def download_road_network(self, start_coords, end_coords):
+    # Road type sets per transport mode
+    _ROAD_TYPES = {
+        'driving': {
+            'far':    "motorway|trunk|primary|secondary|motorway_link|trunk_link|primary_link|secondary_link",
+            'medium': "motorway|trunk|primary|secondary|tertiary|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link",
+            'near':   "motorway|trunk|primary|secondary|tertiary|unclassified|residential|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link|living_street|service",
+        },
+        'walking': {
+            'far':    "primary|secondary|tertiary|unclassified|residential|living_street|footway|path|pedestrian|steps",
+            'medium': "primary|secondary|tertiary|unclassified|residential|living_street|footway|path|pedestrian|steps|service",
+            'near':   "primary|secondary|tertiary|unclassified|residential|living_street|service|footway|path|pedestrian|steps|track",
+        },
+        'cycling': {
+            'far':    "primary|secondary|tertiary|cycleway|path|track",
+            'medium': "primary|secondary|tertiary|unclassified|residential|cycleway|path|track",
+            'near':   "primary|secondary|tertiary|unclassified|residential|living_street|service|cycleway|path|track|footway",
+        },
+        'transit': {
+            'far':    "motorway|trunk|primary|secondary|motorway_link|trunk_link|primary_link|secondary_link",
+            'medium': "motorway|trunk|primary|secondary|tertiary|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link",
+            'near':   "motorway|trunk|primary|secondary|tertiary|unclassified|residential|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link|living_street|service",
+        },
+    }
+
+    def download_road_network(self, start_coords, end_coords, mode='driving'):
         """
         Κατεβάζει τα δεδομένα του οδικού δικτύου από το OpenStreetMap για την
         περιοχή γύρω από τις συντεταγμένες αρχής και τέλους.
         Χρησιμοποιεί disk cache 24ωρης διάρκειας για αποφυγή επαναλαμβανόμενων λήψεων.
         """
+        if mode not in self._ROAD_TYPES:
+            mode = 'driving'
+
         min_lat = min(start_coords[1], end_coords[1]) - self.buffer
         max_lat = max(start_coords[1], end_coords[1]) + self.buffer
         min_lon = min(start_coords[0], end_coords[0]) - self.buffer
         max_lon = max(start_coords[0], end_coords[0]) + self.buffer
 
         bbox_str = f"{min_lat},{min_lon},{max_lat},{max_lon}"
-        print(f"Λήψη οδικού δικτύου για περιοχή: {bbox_str}")
+        print(f"Λήψη οδικού δικτύου για περιοχή: {bbox_str} (mode: {mode})")
 
-        # --- 1. Check if bbox is already loaded in memory ---
+        # --- 1. Check if bbox + mode is already loaded in memory ---
         current_bbox = (round(min_lat,3), round(min_lon,3), round(max_lat,3), round(max_lon,3))
-        if self._last_bbox == current_bbox and len(self.dijkstra.nodes) > 0:
+        if self._last_bbox == current_bbox and self._last_mode == mode and len(self.dijkstra.nodes) > 0:
             print("Οδικό δίκτυο ήδη φορτωμένο στη μνήμη για αυτή την περιοχή.")
             return True
 
         # --- 2. Check disk cache ---
-        cache_key = self._bbox_cache_key(min_lat, min_lon, max_lat, max_lon)
+        cache_key = self._bbox_cache_key(min_lat, min_lon, max_lat, max_lon, mode)
         cached_elements = self._load_from_disk_cache(cache_key)
         if cached_elements is not None:
             print(f"Φόρτωση {len(cached_elements)} στοιχείων από disk cache...")
             self.dijkstra.graph.clear()
             self.dijkstra.nodes.clear()
-            result = self._build_graph(cached_elements)
+            result = self._build_graph(cached_elements, mode)
             if result:
                 self._last_bbox = current_bbox
+                self._last_mode = mode
             return result
 
-        # --- 3. Determine road types based on distance ---
+        # --- 3. Determine road types based on distance and mode ---
         distance = self.dijkstra.haversine(
             start_coords[0], start_coords[1],
             end_coords[0], end_coords[1]
         )
 
+        mode_types = self._ROAD_TYPES[mode]
         if distance > 30:
-            road_types = "motorway|trunk|primary|secondary|motorway_link|trunk_link|primary_link|secondary_link"
+            road_types = mode_types['far']
             print(f"Μεγάλη απόσταση ({distance:.1f}km) - μόνο κύριοι δρόμοι")
         elif distance > 15:
-            road_types = "motorway|trunk|primary|secondary|tertiary|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link"
+            road_types = mode_types['medium']
             print(f"Μεσαία απόσταση ({distance:.1f}km) - κύριοι + δευτερεύοντες")
         else:
-            road_types = "motorway|trunk|primary|secondary|tertiary|unclassified|residential|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link|living_street|service"
+            road_types = mode_types['near']
             print(f"Μικρή απόσταση ({distance:.1f}km) - όλοι οι τύποι δρόμων")
 
         # --- 4. Build Overpass query ---
@@ -142,9 +172,10 @@ class OSMHandler:
 
                 self.dijkstra.graph.clear()
                 self.dijkstra.nodes.clear()
-                result = self._build_graph(elements)
+                result = self._build_graph(elements, mode)
                 if result:
                     self._last_bbox = current_bbox
+                    self._last_mode = mode
                 return result
 
             except requests.exceptions.Timeout:
@@ -159,7 +190,23 @@ class OSMHandler:
         print("Αποτυχία λήψης οδικού δικτύου από όλα τα mirrors!")
         return False
     
-    def _build_graph(self, elements):
+    # Speeds (km/h) per transport mode — override OSM value for non-driving modes
+    _MODE_SPEEDS = {
+        'walking': {'default': 5, 'footway': 5, 'path': 4, 'steps': 2, 'pedestrian': 5, 'living_street': 5},
+        'cycling': {'default': 15, 'cycleway': 18, 'path': 12, 'track': 10, 'residential': 15, 'living_street': 12},
+        'transit': None,  # use OSM/car speeds (buses run on car roads)
+        'driving': None,  # use OSM speeds
+    }
+
+    # Road types that are inaccessible per mode (skip during graph build)
+    _SKIP_TYPES = {
+        'driving': {'footway', 'path', 'steps', 'pedestrian', 'cycleway', 'bridleway'},
+        'walking': {'motorway', 'motorway_link', 'trunk', 'trunk_link', 'cycleway'},
+        'cycling': {'motorway', 'motorway_link', 'trunk', 'trunk_link', 'steps', 'pedestrian'},
+        'transit': {'footway', 'path', 'steps', 'pedestrian', 'cycleway', 'bridleway'},
+    }
+
+    def _build_graph(self, elements, mode='driving'):
         """
         Κατασκευή του γραφήματος από τα στοιχεία του OSM
         """
@@ -168,25 +215,34 @@ class OSMHandler:
                 # Αποθηκεύουμε τις συντεταγμένες του κόμβου
                 node_id = element['id']
                 self.dijkstra.nodes[node_id] = (element['lat'], element['lon'])
-        
+
         roads_processed = 0  # ένας μετρητής για αποσφαλμάτωση
-        
+        skip_types = self._SKIP_TYPES.get(mode, self._SKIP_TYPES['driving'])
+        mode_speeds = self._MODE_SPEEDS.get(mode)  # None for driving/transit
+
         # Επεξεργαζόμαστε όλους τους δρόμους
         for element in elements:
             if element['type'] == 'way' and 'tags' in element and 'highway' in element['tags']:
                 roads_processed += 1
-                
+
                 # Παίρνουμε τον τύπο του δρόμου και τα πραγματικά όρια ταχύτητας
                 highway_type = element['tags']['highway']
-                
-                # Έλεγχος για πραγματικό όριο ταχύτητας από OSM
-                actual_speed = self.extract_speed_limit(element['tags'])
-                if actual_speed:
-                    speed = actual_speed
-                    print(f"Χρήση πραγματικού ορίου ταχύτητας: {speed} km/h για {highway_type}")
+
+                # Skip road types inaccessible for this mode
+                if highway_type in skip_types:
+                    continue
+
+                # Speed: mode override takes priority, then OSM maxspeed, then highway default
+                if mode_speeds is not None:
+                    speed = mode_speeds.get(highway_type, mode_speeds['default'])
                 else:
-                    speed = self.get_speed_for_highway_type(highway_type)
-                
+                    actual_speed = self.extract_speed_limit(element['tags'])
+                    if actual_speed:
+                        speed = actual_speed
+                        print(f"Χρήση πραγματικού ορίου ταχύτητας: {speed} km/h για {highway_type}")
+                    else:
+                        speed = self.get_speed_for_highway_type(highway_type)
+
                 # Προσθήκη πληροφοριών για τον δρόμο
                 road_info = {
                     'highway_type': highway_type,
@@ -195,10 +251,6 @@ class OSMHandler:
                     'surface': element['tags'].get('surface', 'unknown'),
                     'lanes': element['tags'].get('lanes', '1')
                 }
-                
-                # Αγνοούμε μονοπάτια πεζών για δρομολόγηση αυτοκινήτου
-                if highway_type in ['footway', 'path', 'steps', 'pedestrian']:
-                    continue
                 
                 # Έλεγχος αν είναι μονόδρομος
                 # oneway=yes: μόνο προς τη φορά των κόμβων

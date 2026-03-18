@@ -12,6 +12,7 @@ class RouteManager:
         self.osm_handler = OSMHandler(self.dijkstra)
         self.osrm_helper = OSRMHelper()  # Προσθήκη του OSRM helper
         self.live_traffic_manager = LiveTrafficManager()  # Live traffic integration
+        self._current_mode = 'driving'
         
     def find_route(self, start_coords, end_coords, route_type='driving', waypoints=None):
         # Εύρεση διαδρομής με βελτιωμένο Dijkstra και υποστήριξη waypoints
@@ -19,7 +20,9 @@ class RouteManager:
         if not start_coords or not end_coords:
             print("Λείπουν συντεταγμένες αρχής ή τέλους!")
             return None, None, None, None
-        
+
+        self._current_mode = route_type  # store for waypoint sub-calls
+
         # Εναλλακτική διαχείριση για waypoints
         if waypoints and len(waypoints) > 0:
             return self._find_route_with_waypoints(start_coords, end_coords, waypoints, route_type)
@@ -28,7 +31,7 @@ class RouteManager:
         # αύξηση του buffer για μεγάλες αποστάσεις
         self.check_and_adjust_buffer(start_coords, end_coords)
         
-        if not self.osm_handler.download_road_network(start_coords, end_coords):
+        if not self.osm_handler.download_road_network(start_coords, end_coords, mode=route_type):
             print("αποτυχια στη λήψη οδικού δικτύου!")
             return None, None, None, None
             
@@ -55,7 +58,7 @@ class RouteManager:
             print(f"Επανάληψη με buffer {self.osm_handler.buffer} μοίρες...")
             
             # Νέα λήψη οδικού δικτύου
-            if self.osm_handler.download_road_network(start_coords, end_coords):
+            if self.osm_handler.download_road_network(start_coords, end_coords, mode=route_type):
                 geometry, distance, duration, steps = self.dijkstra.shortest_path(
                     start_coords[1], start_coords[0],
                     end_coords[1], end_coords[0],
@@ -73,20 +76,20 @@ class RouteManager:
         recalculated_distance = 0.0
         recalculated_duration = 0.0
         
+        # Average speed per transport mode for recalculation
+        _avg_speed = {'driving': 60.0, 'walking': 5.0, 'cycling': 15.0, 'transit': 25.0}
+        avg_speed = _avg_speed.get(route_type, 60.0)
+
         # Διατρέχουμε τα σημεία της διαδρομής και υπολογίζουμε την ακριβή απόσταση και διάρκεια
         for i in range(len(geometry) - 1):
             p1_lon, p1_lat = geometry[i]
             p2_lon, p2_lat = geometry[i + 1]
-            
+
             # Υπολογισμός απόστασης μεταξύ διαδοχικών σημείων σε km
             segment_distance = self.dijkstra.haversine(p1_lon, p1_lat, p2_lon, p2_lat)
             recalculated_distance += segment_distance
-            
-            # Υπολογισμός χρόνου με βάση τον τύπο του δρόμου
-            # Εδώ κάνουμε απλοποίηση και υποθέτουμε μέση ταχύτητα 60 km/h για κύριους δρόμους
-            # Αυτό βέβαια θα μπορούσε να είναι πιο ακριβές αν είχαμε τον τύπο δρόμου για κάθε τμήμα
-            speed = 60.0  # km/h
-            segment_duration = (segment_distance / speed) * 3600  # δευτερόλεπτα
+
+            segment_duration = (segment_distance / avg_speed) * 3600  # δευτερόλεπτα
             recalculated_duration += segment_duration
         
         # Αν έχουμε διαδρομή από τον Dijkstra, τη βελτιώνουμε οπτικά με το OSRM
@@ -107,14 +110,7 @@ class RouteManager:
                     segment_distance = self.dijkstra.haversine(p1_lon, p1_lat, p2_lon, p2_lat)
                     enhanced_distance += segment_distance
                     
-                    # Εκτίμηση ταχύτητας με βάση τον τύπο της οδού
-                    # Χρησιμοποιούμε μια μέση ταχύτητα 65 km/h για κύριους δρόμους και 35 km/h για αστικές περιοχές
-                    if recalculated_distance > 20:  # Αν η συνολική απόσταση είναι μεγάλη, πιθανόν να περιλαμβάνει κύριους δρόμους
-                        speed = 65.0
-                    else:
-                        speed = 35.0
-                    
-                    segment_duration = (segment_distance / speed) * 3600  # δευτερόλεπτα
+                    segment_duration = (segment_distance / avg_speed) * 3600  # δευτερόλεπτα
                     enhanced_duration += segment_duration
                 
                 # Χρησιμοποιούμε το βελτιωμένο geometry, αλλά την απόσταση και διάρκεια 
@@ -307,7 +303,7 @@ class RouteManager:
         min_lon, max_lon = min(lons), max(lons)
         
         # Χρήση των ακραίων σημείων για λήψη δικτύου
-        return self.osm_handler.download_road_network([min_lon, min_lat], [max_lon, max_lat])
+        return self.osm_handler.download_road_network([min_lon, min_lat], [max_lon, max_lat], mode=self._current_mode)
     
     def generate_route_alternatives(self, start_coords, end_coords, num_alternatives=2):
         """Δημιουργία εναλλακτικών διαδρομών"""
